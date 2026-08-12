@@ -1,0 +1,54 @@
+{
+  "name": "volna-player",
+  "version": "1.2.0",
+  "description": "Волна — лёгкий музыкальный плеер для Windows",
+  "main": "main.js",
+  "author": "Volna",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "build": "node prepare.js && electron-builder --win",
+    "pack": "node prepare.js && electron-builder --dir"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "music-metadata": "^7.14.0",
+    "discord-rpc": "^4.0.1",
+    "ffmpeg-static": "^5.2.0"
+  },
+  "build": {
+    "appId": "ru.volna.player",
+    "productName": "Волна",
+    "files": [
+      "main.js",
+      "preload.js",
+      "prepare.js",
+      "node_modules/**/*",
+      "dist/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/**"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Волна"
+    }
+  }
+}

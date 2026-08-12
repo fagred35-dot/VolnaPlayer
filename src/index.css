@@ -1,0 +1,341 @@
+@import "tailwindcss";
+
+/* ============ СИСТЕМА ТЕМ ============ */
+/* Все цвета интерфейса — через переменные. Темы, обои и CSS-код
+   просто переопределяют их: максимальная кастомизация без правки кода. */
+:root {
+  --accent: #8b5cf6;
+  --bg-base: #0a0d14;
+  --glow-a: rgba(139, 92, 246, 0.13);
+  --glow-b: rgba(34, 211, 238, 0.06);
+  --side-bg: rgba(0, 0, 0, 0.2);
+  --surface: rgba(12, 16, 24, 0.92);
+  --panel: #10141d;
+  --overlay: rgba(7, 9, 15, 0.85);
+  --t1: rgba(247, 249, 252, 0.95);
+  --t2: rgba(255, 255, 255, 0.55);
+  --t3: rgba(255, 255, 255, 0.32);
+  --line: rgba(255, 255, 255, 0.07);
+  --glass-bg: rgba(255, 255, 255, 0.045);
+  --glass-strong: rgba(255, 255, 255, 0.08);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --track: rgba(255, 255, 255, 0.13);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: "Manrope", system-ui, -apple-system, sans-serif;
+  background: var(--bg-base);
+  color: var(--t1);
+  overflow: hidden;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.font-display {
+  font-family: "Unbounded", "Manrope", sans-serif;
+}
+
+/* ---------- фон приложения ---------- */
+.bg-app {
+  background:
+    radial-gradient(1100px 650px at 85% -10%, var(--glow-a), transparent 60%),
+    radial-gradient(900px 600px at -10% 110%, var(--glow-b), transparent 60%),
+    var(--bg-base);
+}
+
+.glass {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+}
+
+/* ---------- поверхности из переменных темы ---------- */
+.bg-side {
+  background: var(--side-bg);
+}
+.bg-surface {
+  background: var(--surface);
+}
+.bg-panel {
+  background: var(--panel);
+}
+.bg-overlay {
+  background: var(--overlay);
+}
+.bd-line {
+  border-color: var(--line);
+}
+
+/* ---------- тема: тексты и мелкие поверхности ---------- */
+.text-white,
+.text-white\/90,
+.text-white\/85,
+.text-white\/80 {
+  color: var(--t1);
+}
+.text-white\/75,
+.text-white\/70,
+.text-white\/60,
+.text-white\/55,
+.text-white\/50 {
+  color: var(--t2);
+}
+.text-white\/45,
+.text-white\/40,
+.text-white\/35,
+.text-white\/30,
+.text-white\/25 {
+  color: var(--t3);
+}
+.bg-white\/\[0\.045\] {
+  background-color: var(--glass-bg);
+}
+.bg-white\/\[0\.05\],
+.bg-white\/\[0\.1\] {
+  background-color: var(--glass-bg);
+}
+.bg-white\/\[0\.06\],
+.bg-white\/\[0\.07\],
+.bg-white\/\[0\.08\],
+.bg-white\/\[0\.12\] {
+  background-color: var(--glass-strong);
+}
+.bg-white\/10 {
+  background-color: var(--track);
+}
+.hover\:bg-white\/\[0\.04\]:hover,
+.hover\:bg-white\/\[0\.05\]:hover {
+  background-color: var(--glass-bg);
+}
+.hover\:bg-white\/\[0\.06\]:hover,
+.hover\:bg-white\/\[0\.07\]:hover,
+.hover\:bg-white\/\[0\.08\]:hover,
+.hover\:bg-white\/\[0\.12\]:hover {
+  background-color: var(--glass-strong);
+}
+.border-white\/\[0\.06\],
+.border-white\/\[0\.07\],
+.border-white\/10 {
+  border-color: var(--line);
+}
+.placeholder-white\/30::placeholder {
+  color: var(--t3);
+}
+
+/* ---------- скроллбар ---------- */
+.scroll-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 99px;
+}
+.scroll-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+/* ---------- горизонтальный слайдер ---------- */
+input[type="range"].slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 99px;
+  background: linear-gradient(
+    to right,
+    var(--accent) var(--fill, 50%),
+    var(--track) var(--fill, 50%)
+  );
+  outline: none;
+  cursor: pointer;
+}
+input[type="range"].slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  border: none;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+  transition: transform 0.15s;
+}
+input[type="range"].slider:hover::-webkit-slider-thumb {
+  transform: scale(1.3);
+}
+input[type="range"].slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  border: none;
+}
+input[type="range"].slider::-moz-range-track {
+  background: transparent;
+}
+
+/* ---------- вертикальный слайдер эквалайзера ---------- */
+input[type="range"].vslider {
+  -webkit-appearance: none;
+  appearance: none;
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 100%;
+  height: 150px;
+  background: transparent;
+  cursor: pointer;
+  margin: 0;
+}
+input[type="range"].vslider::-webkit-slider-runnable-track {
+  width: 5px;
+  background: var(--track);
+  border-radius: 99px;
+}
+input[type="range"].vslider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-left: -6px;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 65%, transparent);
+}
+input[type="range"].vslider::-moz-range-track {
+  width: 5px;
+  background: var(--track);
+  border-radius: 99px;
+}
+input[type="range"].vslider::-moz-range-thumb {
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: none;
+}
+
+/* ---------- слайдер внутри модалок ---------- */
+input[type="range"].modal-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 99px;
+  background: linear-gradient(
+    to right,
+    var(--accent) var(--fill, 0%),
+    var(--track) var(--fill, 0%)
+  );
+  outline: none;
+  cursor: pointer;
+}
+input[type="range"].modal-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--accent);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+  margin-top: -4px;
+}
+input[type="range"].modal-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+input[type="range"].modal-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--accent);
+}
+input[type="range"].modal-slider::-moz-range-track {
+  background: transparent;
+}
+
+/* ---------- анимации ---------- */
+@keyframes eqbar {
+  0%,
+  100% {
+    transform: scaleY(0.25);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+.eq-bar {
+  transform-origin: bottom;
+  animation: eqbar 1s ease-in-out infinite;
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.anim-in {
+  animation: fadeUp 0.28s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.toast-in {
+  animation: toastIn 0.25s ease-out both;
+}
+
+@keyframes spinSlow {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.disc-spin {
+  animation: spinSlow 9s linear infinite;
+}
+.disc-paused {
+  animation-play-state: paused;
+}
+
+@keyframes pulseGlow {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.pulse-glow {
+  animation: pulseGlow 2.4s ease-in-out infinite;
+}
+
+/* ---------- перетаскивание frameless-окна мини-плеера ---------- */
+.drag-region {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
