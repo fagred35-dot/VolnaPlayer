@@ -355,10 +355,12 @@ function createMini() {
     return miniWin;
   }
   miniWin = new BrowserWindow({
-    width: 400,
-    height: 150,
+    width: 420,
+    height: 160,
+    minWidth: 340,
+    minHeight: 110,
     frame: false,
-    resizable: false,
+    resizable: true, // размер мини-плеера можно менять мышью за края
     alwaysOnTop: true,
     skipTaskbar: true,
     show: false,
@@ -474,7 +476,7 @@ function registerIpc() {
   });
 
   /* ---- скачивание аудио по ссылке (yt-dlp) ---- */
-  ipcMain.handle("dl-download", async (e, url) => {
+  ipcMain.handle("dl-download", async (e, url, destDir) => {
     const win = BrowserWindow.fromWebContents(e.sender);
     if (!win || typeof url !== "string" || !/^https?:\/\//.test(url)) {
       win && win.webContents.send("dl-error", { message: "Некорректная ссылка" });
@@ -482,8 +484,21 @@ function registerIpc() {
     }
     try {
       await ensureYtDlp(win);
-      fs.mkdirSync(DOWNLOADS(), { recursive: true });
-      roots.add(DOWNLOADS());
+      // Куда скачивать: предпочтительно папка пользователя с музыкой (чтобы трек
+      // сразу попадал в библиотеку и синхронизацию), иначе — папка загрузок в userData.
+      let target = DOWNLOADS();
+      if (typeof destDir === "string" && destDir.trim()) {
+        const p = path.resolve(destDir);
+        try {
+          fs.mkdirSync(p, { recursive: true });
+          fs.accessSync(p, fs.constants.W_OK);
+          target = p;
+        } catch {
+          target = DOWNLOADS();
+        }
+      }
+      fs.mkdirSync(target, { recursive: true });
+      roots.add(target);
       persistRoots();
 
       // Обновляем yt-dlp до последней версии (у старых нет --write-metadata)
@@ -512,7 +527,7 @@ function registerIpc() {
       const ff = await ensureFfmpeg(win);
       if (ff) args.unshift("--ffmpeg-location", path.dirname(ff));
 
-      const proc = spawn(YTDLP(), args, { cwd: DOWNLOADS(), windowsHide: true });
+      const proc = spawn(YTDLP(), args, { cwd: target, windowsHide: true });
       let buf = "";
       let errTail = "";
       proc.stderr.on("data", (d) => {
@@ -535,14 +550,31 @@ function registerIpc() {
       if (code !== 0) throw new Error("yt-dlp (код " + code + "): " + (errTail || "неизвестная ошибка"));
 
       const files = fs
-        .readdirSync(DOWNLOADS())
+        .readdirSync(target)
         .filter((f) => AUDIO_RE.test(f))
-        .map((f) => ({ f, m: fs.statSync(path.join(DOWNLOADS(), f)).mtimeMs }))
+        .map((f) => ({ f, m: fs.statSync(path.join(target, f)).mtimeMs }))
         .sort((a, b) => b.m - a.m);
       const file = files[0];
       if (!file) throw new Error("Файл не был создан");
-      const abs = path.join(DOWNLOADS(), file.f);
-      win.webContents.send("dl-done", { path: abs, title: file.f.replace(/\.[^.]+$/, "") });
+      const abs = path.join(target, file.f);
+      // Читаем теги прямо из скачанного файла: исполнитель, альбом,
+      // длительность, обложка — чтобы трек сразу был полным в библиотеке
+      let extra = { title: file.f.replace(/\.[^.]+$/, ""), artist: "", album: "", duration: 0, coverHash: null };
+      try {
+        const tags = await getTagsFor(abs);
+        if (tags) {
+          extra = {
+            title: tags.title || extra.title,
+            artist: tags.artist || "",
+            album: tags.album || "",
+            duration: tags.duration || 0,
+            coverHash: tags.coverHash,
+          };
+        }
+      } catch {
+        /* теги не критичны */
+      }
+      win.webContents.send("dl-done", { path: abs, ...extra });
       return { ok: true };
     } catch (err) {
       win.webContents.send("dl-error", { message: String((err && err.message) || err) });
@@ -563,13 +595,22 @@ function createWindow() {
   const win = new BrowserWindow({
     width,
     height,
-    useContentSize: true, // размеры = размер контента (системный заголовок не в счёт)
+    useContentSize: true,
     minWidth: 720,
     minHeight: 540,
     backgroundColor: "#0a0d14",
     autoHideMenuBar: true,
     title: "Волна",
     icon: path.join(__dirname, "dist", "favicon.ico"),
+    // Прозрачный верхний titlebar: системные кнопки (свернуть/развернуть/закрыть)
+    // рисуются поверх веб-контента, а полоса под ними — полностью прозрачная
+    // (сквозь неё видно обои и фон темы).
+    titleBarStyle: "hidden",
+    titleBarOverlay: {
+      color: "#00000000",
+      symbolColor: "#ffffff",
+      height: 40,
+    },
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,

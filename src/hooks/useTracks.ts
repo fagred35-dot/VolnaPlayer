@@ -133,8 +133,14 @@ export function useTracks() {
         return makeFolderTrack(f, abs, tags[abs], old);
       });
 
-      // не-папочные треки сохраняем как были, папочные пересобираем
-      const merged = [...prev.filter((t) => !t.path), ...next];
+      // ВАЖНО: убираем из prev ТОЛЬКО треки, которые лежат ВНУТРИ сканируемой папки.
+      // Треки с путями вне папки (например, скачанные по ссылке) не трогаем —
+      // иначе они пропадали из библиотеки при каждом пересканировании.
+      const inFolder = (p: string) => {
+        const f = res.path.replace(/[\\/]+$/, "");
+        return p === f || p.startsWith(f + "\\") || p.startsWith(f + "/");
+      };
+      const merged = [...prev.filter((t) => !(t.path && inFolder(t.path))), ...next];
       setTracks(merged);
       persistOrder(merged);
       setFolderScanning(false);
@@ -247,25 +253,44 @@ export function useTracks() {
     [persistOrder]
   );
 
-  /** Трек, скачанный по ссылке (yt-dlp): уже лежит в userData/downloads */
+  /** Трек, скачанный по ссылке (yt-dlp): уже лежит в userData/downloads.
+   *  Сохраняется в IndexedDB, чтобы переживать перезапуск приложения.
+   *  Если трек уже есть (тот же путь) — обновляем теги, пришедшие с файла. */
   const addExternalTrack = useCallback(
-    (t: { path: string; title: string }) => {
+    (t: { path: string; title: string; artist?: string; album?: string; duration?: number; coverHash?: string | null }) => {
       const id = hashId(t.path);
       setTracks((prev) => {
-        if (prev.some((x) => x.id === id)) return prev;
+        const existing = prev.find((x) => x.id === id);
+        if (existing) {
+          return prev.map((x) =>
+            x.id === id
+              ? {
+                  ...x,
+                  title: t.title || x.title,
+                  artist: t.artist || x.artist,
+                  album: t.album || x.album,
+                  duration: t.duration || x.duration,
+                  coverHash: t.coverHash || x.coverHash,
+                }
+              : x
+          );
+        }
         const nt: Track = {
           id,
           title: t.title || t.path.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, "") || "Скачано",
-          artist: "",
-          duration: 0,
+          artist: t.artist || "",
+          album: t.album || undefined,
+          duration: t.duration || 0,
           addedAt: Date.now(),
           fav: false,
           fileName: t.path.split(/[\\/]/).pop() || t.path,
           fileSize: 0,
           path: t.path,
+          coverHash: t.coverHash || undefined,
         };
         const list = [...prev, nt];
         persistOrder(list);
+        saveTracks([{ ...nt, blob: undefined }]).catch(() => undefined);
         return list;
       });
     },

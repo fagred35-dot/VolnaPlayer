@@ -940,7 +940,10 @@ export default function App() {
       <style id="volna-theme">{themeCss(theme)}</style>
       <style id="volna-css">{cssEnabled ? customCss : ""}</style>
 
-      {/* системный заголовок Windows (свернуть/развернуть/закрыть) */}
+      {/* Прозрачная полоса под системные кнопки окна (Electron titleBarOverlay).
+          Сама полоса невидима — сквозь неё видно обои/тему, кнопки рисует Windows. */}
+      {window.volna && <div className="drag-region relative z-50 h-9 shrink-0" />}
+
       <div className="min-h-0 flex-1">
         {/* слой фона темы */}
         <div className="bg-app absolute inset-0" />
@@ -1288,11 +1291,11 @@ export default function App() {
 
       {dlOpen && (
         <DownloadModal
+          destDir={folder?.path}
           onClose={() => setDlOpen(false)}
           onDone={(d) => {
             addExternalTrack(d);
             pushToast("⬇️", `Скачано: ${d.title}`);
-            setDlOpen(false);
           }}
         />
       )}

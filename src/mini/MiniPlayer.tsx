@@ -87,6 +87,7 @@ export default function MiniPlayer() {
         className="relative z-10 flex h-full w-full items-center gap-3 px-4"
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
+        style={{ minWidth: 0 }}
       >
         {/* зона перетаскивания frameless-окна */}
         <div className="drag-region absolute inset-0" />

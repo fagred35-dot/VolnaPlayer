@@ -46,10 +46,12 @@ declare global {
       /** Discord Rich Presence */
       rpcUpdate: (d: { title: string; artist: string; playing: boolean; end?: number | null }) => void;
       setRpcEnabled: (on: boolean) => void;
-      /** скачивание аудио по ссылке (yt-dlp) */
-      dlStart: (url: string) => Promise<{ ok: boolean }>;
+      /** скачивание аудио по ссылке (yt-dlp); destDir — папка, куда сохранить */
+      dlStart: (url: string, destDir?: string) => Promise<{ ok: boolean }>;
       onDlProgress: (cb: (p: { percent: number; status: string }) => void) => () => void;
-      onDlDone: (cb: (d: { path: string; title: string }) => void) => () => void;
+      onDlDone: (
+        cb: (d: { path: string; title: string; artist?: string; album?: string; duration?: number; coverHash?: string | null }) => void
+      ) => () => void;
       onDlError: (cb: (d: { message: string }) => void) => () => void;
     };
   }
