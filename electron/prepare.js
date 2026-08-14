@@ -29,9 +29,22 @@ try {
 }
 
 // 2) Копируем с перезаписью
+// (fs.cpSync падает на путях с кириллицей — EIO, Access denied — поэтому своя рекурсия)
+function copyDir(from, to) {
+  fs.mkdirSync(to, { recursive: true });
+  for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
+    const s = path.join(from, entry.name);
+    const d = path.join(to, entry.name);
+    if (entry.isDirectory()) {
+      copyDir(s, d);
+    } else {
+      fs.copyFileSync(s, d);
+    }
+  }
+}
+
 try {
-  fs.mkdirSync(dest, { recursive: true });
-  fs.cpSync(src, dest, { recursive: true, force: true, errorOnExist: false });
+  copyDir(src, dest);
   console.log("✅ dist скопирован в electron/dist");
 } catch (e) {
   console.error("❌ Не удалось скопировать dist в electron/dist.");

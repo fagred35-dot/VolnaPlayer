@@ -4,5 +4,6 @@ release/
 electron/node_modules/
 electron/dist/
 electron/release/
+electron/build/
 *.log
 .DS_Store

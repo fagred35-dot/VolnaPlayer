@@ -18,9 +18,10 @@
 - 🌌 **Визуализация на весь экран** в «Сейчас играет» с зеркальным отражением
 - 📃 **Плейлисты, очередь, «играть следующим», избранное, недавние, статистика**
 - 🎨 **Темы и стили**: 10 готовых тем, свои обои (включая **анимированные GIF**), редактор CSS-кода + **ИИ-генератор промпта** для ChatGPT
-- 🪟 **Мини-плеер** — маленькое окно поверх всех окон
-- 🎧 **Discord Rich Presence** — статус «Слушает» как у Spotify
-- ⬇️ **Скачивание аудио по ссылке** (YouTube, VK, Twitch, TikTok и ещё 1000+ сайтов через yt-dlp) — с обложкой и тегами
+- 🪟 **Мини-плеер** — маленькое окно поверх всех окон, **размер меняется мышью**
+- 🪟 **Прозрачный верхний заголовок** — системные кнопки поверх обоев/темы
+- 🎧 **Discord Rich Presence** — статус «Слушает» как у Spotify (ID уже вшит)
+- ⬇️ **Скачивание аудио по ссылке** (YouTube, VK, Twitch, TikTok и ещё 1000+ сайтов через yt-dlp) — **прямо в твою папку с музыкой**, с обложкой, исполнителем и тегами
 - 💿 Альбомный вид, сортировки, ПКМ-меню трека, горячие клавиши, медиа-клавиши
 - ⚡ **Минимум ресурсов**: 1 rAF-цикл только во время музыки, 0 фоновых процессов
 
@@ -35,10 +36,6 @@
 **«Сейчас играет»** — винил и визуализация на весь экран:
 
 ![Сейчас играет](screenshots/now-playing.png)
-
-**Обложка в библиотеке:**
-
-![Главное окно с обложкой](screenshots/library-with-cover.png)
 
 **Темы и обои** — в том числе анимированные GIF:
 
@@ -74,6 +71,14 @@ npm run build
 Установщик появится в `electron/release/Волна Setup 1.2.0.exe`.
 
 Быстрый запуск без установки: `cd electron && npm start`
+
+### 📦 Портативная версия (без установки)
+
+После сборки в `electron/release/` есть папка **`win-unpacked/`** — это портативная версия:
+заархивируй её целиком (ZIP) и кидай друзьям — они распаковали и запустили `Волна.exe`.
+Только **не переноси один exe** — без папки `resources` он не запустится.
+
+Собрать только портативную версию: `cd electron && npm run pack`
 
 ---
 
@@ -128,9 +133,10 @@ const DISCORD_ASSET = process.env.VOLNA_DISCORD_ASSET || "имя_ассета";
 Кнопка **«Скачать по ссылке»** в сайдбаре. Работает через [yt-dlp](https://github.com/yt-dlp/yt-dlp) (1000+ сайтов):
 
 - YouTube, VK Видео, Twitch, TikTok, Vimeo, SoundCloud, Bandcamp и т.д.
-- Конвертация в **MP3** через FFmpeg, вшивается обложка и название
-- Трек сразу появляется в библиотеке
-- При первом запуске сам скачивает yt-dlp и FFmpeg
+- Скачивается **в вашу музыкальную папку** (если выбрана) — трек остаётся после перезапуска
+- Конвертация в **MP3** через FFmpeg, вшивается обложка, исполнитель, альбом и длительность — всё видно в библиотеке сразу
+- Кнопка «Открыть папку» показывает, куда сохранился файл
+- При первом запуске сам скачивает: **yt-dlp**, **портативный Node.js** (нужен для YouTube — обход HTTP 403) и **FFmpeg**
 
 ---
 
@@ -146,6 +152,8 @@ const DISCORD_ASSET = process.env.VOLNA_DISCORD_ASSET || "имя_ассета";
 │   └── mini/             # мини-плеер (отдельное окно)
 ├── electron/             # обёртка Windows (.exe)
 │   ├── main.js           # main-процесс: папки, теги, RPC, yt-dlp, мини-окно
+│   ├── make-icon.js      # генерация иконок из PNG (build/icon.ico)
+│   ├── preload.js        # мост между UI и main-процессом
 │   └── package.json      # сборка через electron-builder
 └── dist/                 # собранный сайт (создаётся сборкой)
 ```
@@ -161,9 +169,11 @@ const DISCORD_ASSET = process.env.VOLNA_DISCORD_ASSET || "имя_ассета";
 | [Vite](https://vitejs.dev) | сборщик |
 | [Tailwind CSS](https://tailwindcss.com) | стили |
 | [electron-builder](https://www.electron.build) | сборка .exe |
+| [electron-icon-builder](https://github.com/samuelmeuli/electron-icon-builder) | генерация иконки приложения |
 | [music-metadata](https://github.com/Borewit/music-metadata) | теги и обложки MP3/FLAC |
 | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | скачивание аудио по ссылке |
 | [ffmpeg-static](https://github.com/eugeneware/ffmpeg-static) | конвертация в MP3 |
+| [Node.js](https://nodejs.org) | JS-рантайм для YouTube (авто-загрузка) |
 | [discord-rpc](https://github.com/discordjs/RPC) | статус в Discord |
 | [iTunes Search API](https://performance-partners.apple.com/search-api) | обложки альбомов |
 | [Deezer API](https://developers.deezer.com) | запасной источник обложек |

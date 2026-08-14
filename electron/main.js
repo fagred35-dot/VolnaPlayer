@@ -279,14 +279,46 @@ function downloadFile(url, dest, win, onProgress) {
 }
 
 async function ensureYtDlp(win) {
-  if (fs.existsSync(YTDLP())) return;
-  win.webContents.send("dl-progress", { percent: 0, status: "Скачиваю yt-dlp…" });
-  await downloadFile(
-    "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe",
-    YTDLP(),
-    win,
-    (p) => win.webContents.send("dl-progress", { percent: p * 0.25, status: "Скачиваю yt-dlp…" })
-  );
+  if (!fs.existsSync(YTDLP())) {
+    win.webContents.send("dl-progress", { percent: 0, status: "Скачиваю yt-dlp…" });
+    await downloadFile(
+      "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe",
+      YTDLP(),
+      win,
+      (p) => win.webContents.send("dl-progress", { percent: p * 0.25, status: "Скачиваю yt-dlp…" })
+    );
+  }
+  // Обновляем до последней версии (YouTube часто ломает старые версии — HTTP 403)
+  try {
+    const upd = spawn(YTDLP(), ["-U"], { windowsHide: true });
+    await new Promise((r) => {
+      upd.on("close", r);
+      setTimeout(r, 30000);
+    });
+  } catch {
+    /* не критично */
+  }
+  // Проверяем, что бинарник живой; если нет — качаем свежий с GitHub
+  try {
+    const ok = await new Promise((res) => {
+      const v = spawn(YTDLP(), ["--version"], { windowsHide: true });
+      let out = "";
+      v.stdout.on("data", (d) => (out += d.toString()));
+      v.on("error", () => res(false));
+      v.on("close", (c) => res(c === 0 && out.trim().length > 0));
+    });
+    if (!ok) {
+      win.webContents.send("dl-progress", { percent: 0, status: "Обновляю yt-dlp…" });
+      await downloadFile(
+        "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe",
+        YTDLP(),
+        win,
+        () => {}
+      );
+    }
+  } catch {
+    /* не критично */
+  }
 }
 
 /* ---------- протокол volna:// ---------- */
@@ -534,17 +566,6 @@ function registerIpc() {
       roots.add(target);
       persistRoots();
 
-      // Обновляем yt-dlp до последней версии (у старых нет --write-metadata)
-      try {
-        const upd = spawn(YTDLP(), ["-U"], { windowsHide: true });
-        await new Promise((r) => {
-          upd.on("close", r);
-          setTimeout(r, 20000);
-        });
-      } catch {
-        /* обновление не критично */
-      }
-
       const args = [
         "-x",
         "--audio-format",
@@ -552,10 +573,17 @@ function registerIpc() {
         "--embed-thumbnail",
         "--no-playlist",
         "--newline",
+        "--retries",
+        "3",
+        "--retry-sleep",
+        "2",
         "-o",
         "%(title)s.%(ext)s",
         url,
       ];
+      // Обход бот-детекта YouTube (HTTP 403): мобильный/Safari клиент
+      // блокируется гораздо реже, чем обычный веб-клиент
+      args.unshift("--extractor-args", "youtube:player_client=android,web_safari");
       // JS-рантайм (node) обязателен для YouTube — ищем/качаем заранее
       const rt = await ensureJsRuntime(win);
       if (rt) args.unshift("--js-runtimes", "node:" + rt);
@@ -637,7 +665,7 @@ function createWindow() {
     backgroundColor: "#0a0d14",
     autoHideMenuBar: true,
     title: "Волна",
-    icon: path.join(__dirname, "dist", "favicon.ico"),
+    icon: path.join(__dirname, "build", "icon.ico"),
     // Прозрачный верхний titlebar: системные кнопки (свернуть/развернуть/закрыть)
     // рисуются поверх веб-контента, а полоса под ними — полностью прозрачная
     // (сквозь неё видно обои и фон темы).

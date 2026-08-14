@@ -7,8 +7,8 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "build": "node prepare.js && electron-builder --win",
-    "pack": "node prepare.js && electron-builder --dir"
+    "build": "node prepare.js && node make-icon.js && electron-builder --win",
+    "pack": "node prepare.js && node make-icon.js && electron-builder --dir"
   },
   "devDependencies": {
     "electron": "^33.2.0",
@@ -36,7 +36,7 @@
       "output": "release"
     },
     "win": {
-      "icon": "build/icon.png",
+      "icon": "build/icon.ico",
       "target": [
         {
           "target": "nsis",
