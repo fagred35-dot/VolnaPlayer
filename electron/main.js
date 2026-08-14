@@ -28,6 +28,39 @@ const DOWNLOADS = () => path.join(app.getPath("userData"), "downloads");
 const YTDLP = () => path.join(app.getPath("userData"), "yt-dlp.exe");
 const FFMPEG = () => path.join(app.getPath("userData"), "ffmpeg.exe");
 
+/* ---------- JS-рантайм для YouTube (новый yt-dlp требует node/deno) ---------- */
+// YouTube перестал отдавать данные без JS-рантайма (HTTP 403).
+// Качаем портативный node.exe (один файл) и передаём его yt-dlp через --js-runtimes.
+async function ensureJsRuntime(win) {
+  const nodePath = path.join(app.getPath("userData"), "node.exe");
+  try {
+    if (fs.existsSync(nodePath)) {
+      // проверяем, что node реально запускается
+      const ok = await new Promise((res) => {
+        const p = spawn(nodePath, ["--version"], { windowsHide: true });
+        p.on("error", () => res(false));
+        p.on("close", (c) => res(c === 0));
+      });
+      if (ok) return nodePath;
+      try {
+        fs.unlinkSync(nodePath);
+      } catch {
+        /* занят */
+      }
+    }
+    win.webContents.send("dl-progress", { percent: 0.25, status: "Скачиваю JS-рантайм (Node)…" });
+    await downloadFile(
+      "https://nodejs.org/dist/latest/win-x64/node.exe",
+      nodePath,
+      win,
+      (pr) => win.webContents.send("dl-progress", { percent: 0.25 + pr * 0.15, status: "Скачиваю JS-рантайм (Node)…" })
+    );
+    return fs.existsSync(nodePath) && fs.statSync(nodePath).size > 1_000_000 ? nodePath : null;
+  } catch {
+    return null;
+  }
+}
+
 /* Найти рабочий ffmpeg: сначала распакованный из npm (app.asar.unpacked),
    потом скачанный в userData; если нет — скачать с GitHub */
 async function ensureFfmpeg(win) {
@@ -42,12 +75,12 @@ async function ensureFfmpeg(win) {
     /* нет пакета */
   }
   if (fs.existsSync(FFMPEG())) return FFMPEG();
-  win.webContents.send("dl-progress", { percent: 0.25, status: "Скачиваю FFmpeg…" });
+  win.webContents.send("dl-progress", { percent: 0.4, status: "Скачиваю FFmpeg…" });
   await downloadFile(
     "https://github.com/eugeneware/ffmpeg-static/releases/latest/download/ffmpeg-win32-x64",
     FFMPEG(),
     win,
-    (pr) => win.webContents.send("dl-progress", { percent: 0.25 + pr * 0.25, status: "Скачиваю FFmpeg…" })
+    (pr) => win.webContents.send("dl-progress", { percent: 0.4 + pr * 0.1, status: "Скачиваю FFmpeg…" })
   );
   return FFMPEG();
 }
@@ -523,6 +556,9 @@ function registerIpc() {
         "%(title)s.%(ext)s",
         url,
       ];
+      // JS-рантайм (node) обязателен для YouTube — ищем/качаем заранее
+      const rt = await ensureJsRuntime(win);
+      if (rt) args.unshift("--js-runtimes", "node:" + rt);
       // FFmpeg обязателен для конвертации в mp3 — ищем/качаем заранее
       const ff = await ensureFfmpeg(win);
       if (ff) args.unshift("--ffmpeg-location", path.dirname(ff));

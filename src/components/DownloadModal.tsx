@@ -159,7 +159,7 @@ export default function DownloadModal({ onClose, onDone, destDir }: Props) {
                   />
                 </div>
                 <div className="mt-2 text-center text-[10px] font-medium text-white/30">
-                  первый запуск может скачивать yt-dlp (~17 МБ) и FFmpeg
+                  первый запуск может скачивать yt-dlp, JS-рантайм (Node) и FFmpeg
                 </div>
               </div>
             )}
