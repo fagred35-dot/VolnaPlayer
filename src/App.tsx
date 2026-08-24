@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type DragEvent as ReactDragEvent,
 } from "react";
 import { engine } from "./engine/AudioEngine";
@@ -14,7 +15,6 @@ import { useTracks } from "./hooks/useTracks";
 import Sidebar from "./components/Sidebar";
 import PlayerBar from "./components/PlayerBar";
 import Playlist from "./components/Playlist";
-import NowPlaying from "./components/NowPlaying";
 import Equalizer from "./components/Equalizer";
 import SleepTimer from "./components/SleepTimer";
 import Toasts from "./components/Toasts";
@@ -23,7 +23,7 @@ import ThemesModal from "./components/ThemesModal";
 import QueueModal from "./components/QueueModal";
 import TrackMenu from "./components/TrackMenu";
 import { usePlaylists } from "./hooks/usePlaylists";
-import { IconFolder, IconGrid, IconList, IconMenu, IconPlus, IconSearch, IconSort } from "./components/icons";
+import { IconFolder, IconGrid, IconList, IconMax, IconMenu, IconMin, IconPlus, IconRestore, IconSearch, IconSort, IconX } from "./components/icons";
 import { themeCss, THEMES } from "./theme/themes";
 import StatsModal from "./components/StatsModal";
 import AlbumsGrid from "./components/AlbumsGrid";
@@ -75,9 +75,10 @@ export default function App() {
   const [sortDir, setSortDir] = useState<1 | -1>(1);
   const [eq, setEq] = useState<EqState>(DEFAULT_EQ);
   const [accent, setAccent] = useState("#8b5cf6");
+  const [accent2, setAccent2] = useState<string | null>(null);
+  const [winBgOpacity, setWinBgOpacity] = useState(0.55);
   const [timerEnd, setTimerEnd] = useState<number | null>(null);
-  const [modal, setModal] = useState<{ now: boolean; eq: boolean; timer: boolean }>({
-    now: false,
+  const [modal, setModal] = useState<{ eq: boolean; timer: boolean }>({
     eq: false,
     timer: false,
   });
@@ -101,6 +102,9 @@ export default function App() {
   const [dlOpen, setDlOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [rpcOn, setRpcOn] = useState(true);
+  const [winTransparent, setWinTransparent] = useState(false);
+  const [winMaterial, setWinMaterial] = useState<"none" | "acrylic" | "mica">("none");
+  const [maximized, setMaximized] = useState(false);
   const { stats, recordPlay, recordListen } = useStats();
   const playStartRef = useRef<number | null>(null);
   const statIdRef = useRef<string | null>(null);
@@ -516,6 +520,45 @@ export default function App() {
     document.documentElement.style.setProperty("--accent", accent);
     saveMeta("accent", accent).catch(() => undefined);
   }, [accent]);
+
+  /* градиентный акцент: --accent-2 и --accent-grad */
+  useEffect(() => {
+    loadMeta<string | null>("accent2")
+      .then((v) => {
+        if (v) setAccent2(v);
+      })
+      .catch(() => undefined);
+    try {
+      const o = Number(localStorage.getItem("volna-win-opacity"));
+      if (Number.isFinite(o) && o > 0) setWinBgOpacity(Math.min(0.95, Math.max(0.1, o)));
+    } catch {
+      /* нет данных */
+    }
+  }, []);
+  useEffect(() => {
+    const s = document.documentElement.style;
+    if (accent2) {
+      s.setProperty("--accent-2", accent2);
+      s.setProperty("--accent-grad", `linear-gradient(135deg, ${accent}, ${accent2})`);
+    } else {
+      s.removeProperty("--accent-2");
+      s.removeProperty("--accent-grad");
+    }
+    saveMeta("accent2", accent2).catch(() => undefined);
+  }, [accent2, accent]);
+
+  const handleAccent2 = useCallback((c: string | null) => {
+    setAccent2(c);
+  }, []);
+
+  const handleWinBgOpacity = useCallback((v: number) => {
+    setWinBgOpacity(v);
+    try {
+      localStorage.setItem("volna-win-opacity", String(v));
+    } catch {
+      /* квота */
+    }
+  }, []);
 
   /* ---------- громкость каждого трека (0..2) ---------- */
   useEffect(() => {
@@ -939,6 +982,31 @@ export default function App() {
     });
   }, [togglePlay, next, prev, changeVolume]);
 
+  /* ---------- прозрачность и кнопки окна ---------- */
+  useEffect(() => {
+    if (!window.volna) return;
+    window.volna.getWindowPrefs().then((p) => {
+      setWinTransparent(!!p?.transparent);
+      setWinMaterial(p?.material ?? "none");
+    }).catch(() => undefined);
+    window.volna.isMaximized().then(setMaximized).catch(() => undefined);
+    return window.volna.onWindowState(setMaximized);
+  }, []);
+
+  const handleWinTransparent = useCallback(
+    (on: boolean) => {
+      setWinTransparent(on);
+      window.volna?.setWindowPrefs({ transparent: on }).catch(() => undefined);
+      pushToast("🪟", t("toastRestartNeeded"));
+    },
+    [pushToast, t]
+  );
+
+  const handleWinMaterial = useCallback((m: "none" | "acrylic" | "mica") => {
+    setWinMaterial(m);
+    window.volna?.setWindowPrefs({ material: m }).catch(() => undefined);
+  }, []);
+
   /* ---------- Discord Rich Presence ---------- */
   useEffect(() => {
     if (!window.volna) return;
@@ -997,8 +1065,9 @@ export default function App() {
 
   return (
     <div
-      className="relative flex h-dvh flex-col overflow-hidden"
+      className={`relative flex h-dvh flex-col overflow-hidden ${winTransparent ? "win-transparent" : ""}`}
       data-theme={themeId}
+      style={{ "--win-bg-opacity": winBgOpacity } as CSSProperties}
       onDragEnter={onDragEnter}
       onDragLeave={onDragLeave}
       onDragOver={(e) => e.preventDefault()}
@@ -1009,8 +1078,40 @@ export default function App() {
       <style id="volna-css">{cssEnabled ? customCss : ""}</style>
 
       {/* Прозрачная полоса под системные кнопки окна (Electron titleBarOverlay).
-          Сама полоса невидима — сквозь неё видно обои/тему, кнопки рисует Windows. */}
-      {window.volna && <div className="drag-region relative z-50 h-9 shrink-0" />}
+          Сама полоса невидима — сквозь неё видно обои/тему, кнопки рисует Windows.
+          В прозрачном режиме системных кнопок нет — рисуем свои. */}
+      {window.volna && (
+        <div className="drag-region relative z-50 h-9 shrink-0">
+          {winTransparent && (
+            <div className="no-drag absolute right-0 top-0 flex h-9 items-stretch">
+              <button
+                onClick={() => window.volna!.windowControls("minimize")}
+                className="flex w-11 items-center justify-center text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+                aria-label={t("winMinimize")}
+                title={t("winMinimize")}
+              >
+                <IconMin className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => window.volna!.windowControls("maximize")}
+                className="flex w-11 items-center justify-center text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+                aria-label={maximized ? t("winRestoreWin") : t("winMaximize")}
+                title={maximized ? t("winRestoreWin") : t("winMaximize")}
+              >
+                {maximized ? <IconRestore className="h-4 w-4" /> : <IconMax className="h-4 w-4" />}
+              </button>
+              <button
+                onClick={() => window.volna!.windowControls("close")}
+                className="flex w-11 items-center justify-center text-white/60 transition-colors hover:bg-red-500/80 hover:text-white"
+                aria-label={t("close")}
+                title="✕"
+              >
+                <IconX className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="min-h-0 flex-1">
         {/* слой фона темы */}
@@ -1020,7 +1121,7 @@ export default function App() {
         {wallpaper && (
           <>
             <div
-              className="pointer-events-none absolute inset-0 bg-cover bg-center"
+              className="bg-wallpaper pointer-events-none absolute inset-0 bg-cover bg-center"
               style={{ backgroundImage: `url("${wallpaper}")` }}
             />
             <div
@@ -1190,7 +1291,7 @@ export default function App() {
             onClick={() => fileInputRef.current?.click()}
             className="flex shrink-0 items-center gap-2 rounded-full px-3.5 py-2.5 text-sm font-bold text-white transition-all hover:brightness-110 active:scale-95 sm:px-4"
             style={{
-              background: "linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 60%, #22d3ee))",
+              background: "var(--accent-grad)",
               boxShadow: "0 6px 20px -8px var(--accent)",
             }}
           >
@@ -1256,7 +1357,6 @@ export default function App() {
         onRepeat={cycleRepeat}
         shuffle={shuffle}
         onShuffle={() => setShuffle((s) => !s)}
-        onOpenNow={() => setModal((m) => ({ ...m, now: true }))}
         onOpenEq={() => setModal((m) => ({ ...m, eq: true }))}
         onOpenTimer={() => setModal((m) => ({ ...m, timer: true }))}
         gain={currentGain}
@@ -1292,30 +1392,6 @@ export default function App() {
         eqOn={eq.enabled}
         onFav={toggleFav}
       />
-
-      {modal.now && currentTrack && (
-        <NowPlaying
-          track={currentTrack}
-          isPlaying={isPlaying}
-          time={time}
-          duration={duration}
-          onSeek={seekTo}
-          onToggle={togglePlay}
-          onNext={next}
-          onPrev={prev}
-          onClose={() => setModal((m) => ({ ...m, now: false }))}
-          shuffle={shuffle}
-          onShuffle={() => setShuffle((s) => !s)}
-          repeat={repeat}
-          onRepeat={cycleRepeat}
-          speed={speed}
-          onSpeed={cycleSpeed}
-          onFav={toggleFav}
-          gain={currentGain}
-          onGain={(v) => handleTrackGain(currentTrack.id, v)}
-          accent={accent}
-        />
-      )}
 
       {modal.eq && (
         <Equalizer
@@ -1356,6 +1432,8 @@ export default function App() {
           onToggleRpc={() => setRpcOn((r) => !r)}
           accent={accent}
           onAccent={setAccent}
+          accent2={accent2}
+          onAccent2={handleAccent2}
           onOpenStats={() => setStatsOpen(true)}
           onOpenThemes={() => setThemesOpen(true)}
           onOpenEq={() => setModal((m) => ({ ...m, eq: true }))}
@@ -1416,10 +1494,6 @@ export default function App() {
             pushToast("🎶", t("toastAddedToPl", { name: activePlaylist.name }));
           }}
           onToggleFav={(t) => toggleFav(t.id)}
-          onOpenNow={(t) => {
-            if (t.id !== currentId) playTrack(t);
-            setModal((m) => ({ ...m, now: true }));
-          }}
           onOpenExplorer={(t) => {
             if (window.volna && t.path) window.volna.openInExplorer(t.path);
           }}
@@ -1467,6 +1541,12 @@ export default function App() {
           cssEnabled={cssEnabled}
           onCssEnabled={setCssEnabled}
           onReset={resetTheme}
+          winTransparent={winTransparent}
+          onWinTransparent={handleWinTransparent}
+          winMaterial={winMaterial}
+          onWinMaterial={handleWinMaterial}
+          winBgOpacity={winBgOpacity}
+          onWinBgOpacity={handleWinBgOpacity}
           onClose={() => setThemesOpen(false)}
         />
       )}

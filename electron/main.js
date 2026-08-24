@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, dialog, ipcMain, protocol, net, screen } = require("electron");
+const { app, BrowserWindow, shell, dialog, ipcMain, protocol, net, screen, globalShortcut } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const fsp = require("fs/promises");
@@ -467,15 +467,16 @@ function createMini() {
   }
   miniWin = new BrowserWindow({
     width: 420,
-    height: 160,
-    minWidth: 340,
-    minHeight: 110,
+    height: 176,
+    minWidth: 300,
+    minHeight: 64,
     frame: false,
     resizable: true, // размер мини-плеера можно менять мышью за края
     alwaysOnTop: true,
     skipTaskbar: true,
     show: false,
-    backgroundColor: "#0a0d14",
+    transparent: true, // прозрачность для режима «без фона»
+    backgroundColor: "#00000000",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -507,14 +508,38 @@ function createMini() {
       /* не критично */
     }
   };
-  miniWin.on("moved", saveBounds);
-  miniWin.on("resized", saveBounds);
+  /* Прозрачные окна на Windows могут терять поверх всех окон —
+     держим максимальный уровень topmost и переподтверждаем на событиях */
+  const keepOnTop = () => {
+    if (miniWin && !miniWin.isDestroyed()) {
+      try {
+        miniWin.setAlwaysOnTop(true, "screen-saver");
+      } catch {
+        /* не критично */
+      }
+    }
+  };
+  miniWin.setAlwaysOnTop(true, "screen-saver");
+  miniWin.on("moved", () => {
+    saveBounds();
+    keepOnTop();
+  });
+  miniWin.on("resized", () => {
+    saveBounds();
+    keepOnTop();
+  });
+  miniWin.on("show", keepOnTop);
+  miniWin.on("restore", keepOnTop);
+  miniWin.on("blur", keepOnTop);
 
   const distIndex = path.join(__dirname, "dist", "index.html");
   miniWin.loadFile(distIndex, { query: { mini: "1" } }).catch(() => {
     miniWin.loadURL("http://localhost:5173/?mini=1");
   });
-  miniWin.once("ready-to-show", () => miniWin.show());
+  miniWin.once("ready-to-show", () => {
+    miniWin.show();
+    keepOnTop();
+  });
   miniWin.on("closed", () => {
     miniWin = null;
     const m = getMainWindow();
@@ -600,6 +625,22 @@ function registerIpc() {
 
   ipcMain.on("mini-state", (_e, state) => {
     if (miniWin && !miniWin.isDestroyed()) miniWin.webContents.send("mini-state", state);
+  });
+
+  /* ---- оверлей: ресайз из пресетов вида ---- */
+  ipcMain.on("mini-resize", (e, w, h) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (win && win === miniWin && !miniWin.isDestroyed()) {
+      const width = Math.max(280, Math.round(Number(w) || 0));
+      const height = Math.max(60, Math.round(Number(h) || 0));
+      const b = miniWin.getBounds();
+      miniWin.setBounds({ x: b.x, y: b.y, width, height });
+      try {
+        miniWin.setAlwaysOnTop(true, "screen-saver");
+      } catch {
+        /* не критично */
+      }
+    }
   });
 
   /* ---- кастомный titlebar ---- */
@@ -744,6 +785,34 @@ function registerIpc() {
     }
   });
 
+  /* ---- настройки основного окна (прозрачность / размытие фона) ---- */
+  ipcMain.handle("get-window-prefs", () => windowPrefs);
+
+  ipcMain.handle("set-window-prefs", (_e, patch) => {
+    if (!patch || typeof patch !== "object") return windowPrefs;
+    if (typeof patch.transparent === "boolean") windowPrefs.transparent = patch.transparent;
+    if (["none", "acrylic", "mica"].includes(patch.material)) {
+      windowPrefs.material = patch.material;
+      // размытие применяется сразу, без перезапуска
+      if (windowPrefs.transparent) {
+        const win = getMainWindow();
+        if (win && !win.isDestroyed()) {
+          try {
+            win.setBackgroundMaterial(windowPrefs.material === "none" ? "auto" : windowPrefs.material);
+          } catch {
+            /* не поддерживается */
+          }
+        }
+      }
+    }
+    try {
+      fs.writeFileSync(windowPrefsFile(), JSON.stringify(windowPrefs));
+    } catch {
+      /* не критично */
+    }
+    return windowPrefs;
+  });
+
   /* ---- отмена активного скачивания ---- */
   ipcMain.handle("dl-cancel", () => {
     const p = dlProc;
@@ -805,6 +874,23 @@ function registerIpc() {
   });
 }
 
+/* ---------- настройки окна (прозрачность, размытие фона) ---------- */
+function windowPrefsFile() {
+  return path.join(app.getPath("userData"), "window-prefs.json");
+}
+function loadWindowPrefs() {
+  try {
+    const p = JSON.parse(fs.readFileSync(windowPrefsFile(), "utf8"));
+    return {
+      transparent: p.transparent === true,
+      material: ["none", "acrylic", "mica"].includes(p.material) ? p.material : "none",
+    };
+  } catch {
+    return { transparent: false, material: "none" };
+  }
+}
+let windowPrefs = { transparent: false, material: "none" };
+
 function createWindow() {
   // Определяем монитор под курсором и подгоняем размер под его рабочую область:
   // при любом системном масштабе Windows (125%/150%) окно всегда влезает
@@ -820,19 +906,26 @@ function createWindow() {
     useContentSize: true,
     minWidth: 720,
     minHeight: 540,
-    backgroundColor: "#0a0d14",
+    // прозрачный режим: сквозь окно видно рабочий стол (+ размытие за окном)
+    backgroundColor: windowPrefs.transparent ? "#00000000" : "#0a0d14",
+    transparent: windowPrefs.transparent,
     autoHideMenuBar: true,
     title: "Волна",
     icon: path.join(__dirname, "build", "icon.ico"),
     // Прозрачный верхний titlebar: системные кнопки (свернуть/развернуть/закрыть)
     // рисуются поверх веб-контента, а полоса под ними — полностью прозрачная
-    // (сквозь неё видно обои и фон темы).
+    // (сквозь неё видно обои и фон темы). В прозрачном режиме системный оверлей
+    // несовместим — кнопки рисует сам интерфейс (windowControls).
     titleBarStyle: "hidden",
-    titleBarOverlay: {
-      color: "#00000000",
-      symbolColor: "#ffffff",
-      height: 40,
-    },
+    ...(windowPrefs.transparent
+      ? {}
+      : {
+          titleBarOverlay: {
+            color: "#00000000",
+            symbolColor: "#ffffff",
+            height: 40,
+          },
+        }),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -840,6 +933,15 @@ function createWindow() {
       spellcheck: false,
     },
   });
+
+  // Размытие фона за окном (Windows 11): acrylic / mica
+  if (windowPrefs.transparent && windowPrefs.material !== "none") {
+    try {
+      win.setBackgroundMaterial(windowPrefs.material);
+    } catch {
+      /* не Windows 11 или не поддерживается */
+    }
+  }
 
   // Страховка №1: окно обязано целиком влезать в рабочий стол (сдвигаем и ужимаем)
   win.once("ready-to-show", () => {
@@ -888,15 +990,32 @@ function createWindow() {
 
 app.whenReady().then(() => {
   loadRoots();
+  windowPrefs = loadWindowPrefs();
   fs.mkdirSync(DOWNLOADS(), { recursive: true });
   roots.add(DOWNLOADS());
   registerProtocol();
   registerIpc();
   rpcInit();
   createWindow();
+  // глобальный хоткей режима перемещения оверлея (как в Discord)
+  try {
+    globalShortcut.register("Control+Alt+M", () => {
+      if (miniWin && !miniWin.isDestroyed()) miniWin.webContents.send("mini-move-mode");
+    });
+  } catch {
+    /* хоткей занят — не критично, есть кнопка в самом оверлее */
+  }
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+});
+
+app.on("will-quit", () => {
+  try {
+    globalShortcut.unregisterAll();
+  } catch {
+    /* не критично */
+  }
 });
 
 app.on("window-all-closed", () => {

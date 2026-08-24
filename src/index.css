@@ -339,3 +339,24 @@ input[type="range"].modal-slider::-moz-range-track {
 .no-drag {
   -webkit-app-region: no-drag;
 }
+
+/* Градиент акцента (по умолчанию — акцент → циан; задаётся из палитры) */
+:root {
+  --accent-grad: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 60%, #22d3ee));
+}
+
+/* Прозрачное окно: фон темы и обои полупрозрачные, сквозь приложение видно рабочий стол */
+html:has(.win-transparent),
+html:has(.win-transparent) body,
+html:has(.win-transparent) #root {
+  background: transparent !important;
+}
+.win-transparent .bg-app {
+  opacity: var(--win-bg-opacity, 0.55);
+}
+.win-transparent .bg-wallpaper {
+  opacity: var(--win-bg-opacity, 0.55);
+}
+.win-transparent .player-bar {
+  backdrop-filter: blur(24px);
+}

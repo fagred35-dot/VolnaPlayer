@@ -59,12 +59,22 @@ declare global {
       miniOpen: () => Promise<void>;
       miniCommand: (cmd: string) => void;
       sendMiniState: (state: MiniPlayerState) => void;
+      /** изменить размер окна оверлея (из пресетов вида) */
+      miniResize: (w: number, h: number) => void;
+      /** глобальный хоткей Ctrl+Alt+M — режим перемещения оверлея */
+      onMiniMoveMode: (cb: () => void) => () => void;
       onRendererCommand: (cb: (cmd: string) => void) => () => void;
       onMiniState: (cb: (state: MiniPlayerState) => void) => () => void;
       /** кастомный titlebar */
       windowControls: (action: "minimize" | "maximize" | "close") => void;
       onWindowState: (cb: (maximized: boolean) => void) => () => void;
       isMaximized: () => Promise<boolean>;
+      /** прозрачность и размытие основного окна */
+      getWindowPrefs: () => Promise<{ transparent: boolean; material: "none" | "acrylic" | "mica" }>;
+      setWindowPrefs: (patch: { transparent?: boolean; material?: "none" | "acrylic" | "mica" }) => Promise<{
+        transparent: boolean;
+        material: "none" | "acrylic" | "mica";
+      }>;
       /** Discord Rich Presence */
       rpcUpdate: (d: { title: string; artist: string; playing: boolean; end?: number | null }) => void;
       setRpcEnabled: (on: boolean) => void;

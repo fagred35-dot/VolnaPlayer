@@ -20,6 +20,12 @@ interface Props {
   cssEnabled: boolean;
   onCssEnabled: (b: boolean) => void;
   onReset: () => void;
+  winTransparent: boolean;
+  onWinTransparent: (on: boolean) => void;
+  winMaterial: "none" | "acrylic" | "mica";
+  onWinMaterial: (m: "none" | "acrylic" | "mica") => void;
+  winBgOpacity: number;
+  onWinBgOpacity: (v: number) => void;
   onClose: () => void;
 }
 
@@ -295,6 +301,70 @@ export default function ThemesModal(p: Props) {
                     className="modal-slider"
                     style={{ "--fill": `${(p.wallBlur / 30) * 100}%` } as CSSProperties}
                   />
+                </div>
+              </div>
+
+              {/* ===== прозрачное окно + размытие фона за окном ===== */}
+              <div className="mt-4 rounded-2xl bg-white/[0.04] p-3.5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-bold text-white/90">{t("winTranspTitle")}</div>
+                    <div className="mt-0.5 text-[11px] font-medium text-white/35">{t("winTranspDesc")}</div>
+                  </div>
+                  <button
+                    onClick={() => p.onWinTransparent(!p.winTransparent)}
+                    className={`relative shrink-0 rounded-full transition-colors ${p.winTransparent ? "bg-[var(--accent)]" : "bg-white/15"}`}
+                    style={{ width: 44, height: 24 }}
+                    aria-label={t("winTranspTitle")}
+                  >
+                    <span
+                      className="absolute top-[3px] h-[18px] w-[18px] rounded-full bg-white shadow transition-all"
+                      style={{ left: p.winTransparent ? 22 : 3 }}
+                    />
+                  </button>
+                </div>
+                <div className="mt-1 text-[10px] font-semibold text-amber-300/70">ⓘ {t("winTranspRestart")}</div>
+
+                {p.winTransparent && (
+                  <div className="mt-3">
+                    <div className="mb-1.5 flex justify-between text-[11px] font-bold text-white/50">
+                      <span>{t("winOpacityTitle")}</span>
+                      <span className="text-[var(--accent)]">{Math.round(p.winBgOpacity * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={10}
+                      max={95}
+                      value={Math.round(p.winBgOpacity * 100)}
+                      onChange={(e) => p.onWinBgOpacity(Number(e.target.value) / 100)}
+                      className="modal-slider"
+                      style={{ "--fill": `${Math.round(p.winBgOpacity * 100)}%` } as CSSProperties}
+                    />
+                  </div>
+                )}
+
+                <div className={`mt-3 ${p.winTransparent ? "" : "pointer-events-none opacity-40"}`}>
+                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/35">{t("winBlurTitle")}</div>
+                  <div className="mt-1.5 flex gap-1 rounded-xl bg-black/25 p-1">
+                    {([
+                      ["none", t("winBlurNone")],
+                      ["acrylic", t("winBlurAcrylic")],
+                      ["mica", t("winBlurMica")],
+                    ] as Array<["none" | "acrylic" | "mica", string]>).map(([m, label]) => (
+                      <button
+                        key={m}
+                        onClick={() => p.onWinMaterial(m)}
+                        className={`flex-1 rounded-lg py-1.5 text-xs font-bold transition-all ${
+                          p.winMaterial === m
+                            ? "bg-[var(--accent)] text-white shadow-[0_3px_12px_-3px_var(--accent)]"
+                            : "text-white/55 hover:bg-white/[0.08] hover:text-white"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-1.5 text-[10px] font-medium text-white/30">{t("winBlurNote")}</div>
                 </div>
               </div>
             </div>

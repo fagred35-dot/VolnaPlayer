@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Track } from "../types";
 import { useI18n } from "../lib/i18n";
 import {
-  IconDisc,
   IconFolder,
   IconHeart,
   IconHeartFilled,
@@ -27,7 +26,6 @@ interface Props {
   onAddToPlaylist: (t: Track, plId: string) => void;
   onAddToActive: (t: Track) => void;
   onToggleFav: (t: Track) => void;
-  onOpenNow: (t: Track) => void;
   onOpenExplorer: (t: Track) => void;
   onRemoveFromPlaylist: (t: Track) => void;
   onRemove: (t: Track) => void;
@@ -155,7 +153,6 @@ export default function TrackMenu(p: Props) {
           label={tr.fav ? t("favRemove") : t("favAdd")}
           onClick={() => { p.onToggleFav(tr); p.onClose(); }}
         />
-        <Item icon={<IconDisc className="h-4 w-4" />} label={t("nowPlaying")} onClick={() => { p.onOpenNow(tr); p.onClose(); }} />
         {window.volna && tr.path && (
           <Item
             icon={<IconFolder className="h-4 w-4" />}

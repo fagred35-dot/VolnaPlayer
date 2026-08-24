@@ -4,7 +4,6 @@ import { formatTime } from "../lib/format";
 import { useI18n } from "../lib/i18n";
 import {
   IconClock,
-  IconDisc,
   IconFolder,
   IconHeart,
   IconHeartFilled,
@@ -47,7 +46,6 @@ interface Props {
   onRepeat: () => void;
   shuffle: boolean;
   onShuffle: () => void;
-  onOpenNow: () => void;
   onOpenEq: () => void;
   onOpenTimer: () => void;
   /** громкость текущего трека (0..1) */
@@ -202,16 +200,6 @@ export default function PlayerBar(p: Props) {
               <div className="space-y-0.5">
                 <button
                   onClick={() => {
-                    p.onOpenNow();
-                    setMenuOpen(false);
-                  }}
-                  className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-sm font-semibold text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white"
-                >
-                  <IconDisc className="h-4 w-4" />
-                  {tr("nowPlaying")}
-                </button>
-                <button
-                  onClick={() => {
                     p.onQueueTrack();
                     setMenuOpen(false);
                   }}
@@ -321,7 +309,7 @@ export default function PlayerBar(p: Props) {
             disabled={!p.track}
             className="flex h-10 w-10 items-center justify-center rounded-full text-white transition-all hover:scale-105 active:scale-95 disabled:opacity-30 disabled:hover:scale-100 sm:h-11 sm:w-11"
             style={{
-              background: "linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 60%, #22d3ee))",
+              background: "var(--accent-grad)",
               boxShadow: "0 6px 22px -6px var(--accent)",
             }}
             aria-label={tr("playPause")}
@@ -463,9 +451,6 @@ export default function PlayerBar(p: Props) {
         </button>
         <button onClick={p.onOpenTimer} className={`${ctrlBtn} hidden md:block ${p.timerLeft !== null ? "text-[var(--accent)]" : ""}`} aria-label={tr("sleepTimer")} title={tr("sleepTimer")}>
           <IconClock className="h-[18px] w-[18px]" />
-        </button>
-        <button onClick={p.onOpenNow} className={ctrlBtn} aria-label={tr("fullscreenNow")} title={tr("fullscreenNow")}>
-          <IconNext className="h-4 w-4 rotate-[-90deg]" />
         </button>
       </div>
     </footer>

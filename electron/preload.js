@@ -17,6 +17,14 @@ contextBridge.exposeInMainWorld("volna", {
   miniOpen: () => ipcRenderer.invoke("mini-open"),
   miniCommand: (cmd) => ipcRenderer.send("mini-command", cmd),
   sendMiniState: (state) => ipcRenderer.send("mini-state", state),
+  /** изменить размер окна оверлея (из пресетов вида) */
+  miniResize: (w, h) => ipcRenderer.send("mini-resize", w, h),
+  /** глобальный хоткей Ctrl+Alt+M — режим перемещения оверлея */
+  onMiniMoveMode: (cb) => {
+    const l = () => cb();
+    ipcRenderer.on("mini-move-mode", l);
+    return () => ipcRenderer.removeListener("mini-move-mode", l);
+  },
   onRendererCommand: (cb) => {
     const l = (_e, cmd) => cb(cmd);
     ipcRenderer.on("renderer-command", l);
@@ -35,6 +43,9 @@ contextBridge.exposeInMainWorld("volna", {
     return () => ipcRenderer.removeListener("window-state", l);
   },
   isMaximized: () => ipcRenderer.invoke("window-is-maximized"),
+  /** ---- прозрачность и размытие основного окна ---- */
+  getWindowPrefs: () => ipcRenderer.invoke("get-window-prefs"),
+  setWindowPrefs: (patch) => ipcRenderer.invoke("set-window-prefs", patch),
   /** ---- Discord Rich Presence ---- */
   rpcUpdate: (data) => ipcRenderer.send("rpc-update", data),
   setRpcEnabled: (on) => ipcRenderer.send("rpc-enabled", on),

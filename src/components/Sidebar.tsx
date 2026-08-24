@@ -91,7 +91,7 @@ export default function Sidebar(p: Props) {
           onPointerLeave={cancelPress}
           onClick={p.onOpenCredits}
           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-lg text-white shadow-lg transition-transform hover:scale-105 active:scale-95"
-          style={{ background: `linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #22d3ee))` }}
+          style={{ background: "var(--accent-grad)" }}
           title={t("aboutRowDesc")}
           aria-label={t("aboutRowTitle")}
         >
@@ -220,7 +220,7 @@ export default function Sidebar(p: Props) {
         <button
           onClick={p.onAddFiles}
           className="flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-bold text-white transition-all hover:brightness-110 active:scale-[0.98]"
-          style={{ background: "linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 60%, #22d3ee))", boxShadow: "0 8px 24px -8px var(--accent)" }}
+          style={{ background: "var(--accent-grad)", boxShadow: "0 8px 24px -8px var(--accent)" }}
         >
           <IconPlus className="h-4 w-4" strokeWidth={3} />
           {t("addFiles")}

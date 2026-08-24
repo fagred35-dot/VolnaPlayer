@@ -68,7 +68,7 @@ export default function CreditsModal({ onClose }: Props) {
               >
                 <span
                   className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm text-white/80"
-                  style={{ background: "linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 60%, #22d3ee))" }}
+                  style={{ background: "var(--accent-grad)" }}
                 >
                   ⧉
                 </span>

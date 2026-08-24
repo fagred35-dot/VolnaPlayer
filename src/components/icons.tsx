@@ -298,6 +298,13 @@ export const IconDownload = (p: P) => (
   </svg>
 );
 
+export const IconMove = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M12 2v20M2 12h20" />
+    <path d="m9 5 3-3 3 3M9 19l3 3 3-3M5 9l-3 3 3 3M19 9l3 3-3 3" />
+  </svg>
+);
+
 export const IconGlobe = (p: P) => (
   <svg {...base(p)}>
     <circle cx="12" cy="12" r="9" />

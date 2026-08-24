@@ -25,7 +25,7 @@ export default function EmptyState({ onAddFiles, onAddFolder }: Props) {
             onClick={onAddFiles}
             className="flex items-center gap-2 rounded-full px-5 py-3 text-sm font-bold text-white transition-all hover:brightness-110 active:scale-95"
             style={{
-              background: "linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 60%, #22d3ee))",
+              background: "var(--accent-grad)",
               boxShadow: "0 8px 24px -8px var(--accent)",
             }}
           >
