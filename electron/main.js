@@ -321,6 +321,52 @@ async function ensureYtDlp(win) {
   }
 }
 
+/* Запуск yt-dlp для коротких задач (поиск, метаданные) с таймаутом */
+function runYtDlp(args, timeoutMs = 45000) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(YTDLP(), args, { windowsHide: true });
+    let out = "";
+    let err = "";
+    const timer = setTimeout(() => {
+      try {
+        proc.kill();
+      } catch {
+        /* уже мёртв */
+      }
+      reject(new Error("yt-dlp timeout"));
+    }, timeoutMs);
+    proc.stdout.on("data", (d) => (out += d.toString()));
+    proc.stderr.on("data", (d) => (err += d.toString()));
+    proc.on("error", (e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve(out);
+      else reject(new Error((err || "yt-dlp failed").slice(-600)));
+    });
+  });
+}
+
+/** Достать лучшую обложку из массива thumbnails yt-dlp */
+function pickThumb(entry) {
+  if (!entry) return null;
+  if (typeof entry.thumbnail === "string" && entry.thumbnail) return entry.thumbnail;
+  const arr = Array.isArray(entry.thumbnails) ? entry.thumbnails : [];
+  if (arr.length) {
+    const best = [...arr].sort((a, b) => (b.width || b.height || 0) - (a.width || a.height || 0))[0];
+    if (best && best.url) return best.url;
+  }
+  // YouTube-заглушка по id видео
+  if (typeof entry.id === "string" && /^[A-Za-z0-9_-]{6,20}$/.test(entry.id)) {
+    return "https://i.ytimg.com/vi/" + entry.id + "/mqdefault.jpg";
+  }
+  return null;
+}
+
+let dlProc = null; // активный процесс скачивания (для кнопки «Отмена»)
+
 /* ---------- протокол volna:// ---------- */
 protocol.registerSchemesAsPrivileged([
   { scheme: "volna", privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } },
@@ -438,7 +484,31 @@ function createMini() {
     },
   });
   const wa = screen.getPrimaryDisplay().workArea;
-  miniWin.setPosition(wa.x + wa.width - 420, wa.y + wa.height - 170);
+  // восстанавливаем сохранённые позицию и размер оверлея
+  try {
+    const boundsFile = path.join(app.getPath("userData"), "mini-bounds.json");
+    const b = JSON.parse(fs.readFileSync(boundsFile, "utf8"));
+    if (b && typeof b.width === "number" && typeof b.x === "number") {
+      // окно обязано остаться в пределах экрана
+      const x = Math.min(Math.max(b.x, wa.x), wa.x + wa.width - 120);
+      const y = Math.min(Math.max(b.y, wa.y), wa.y + wa.height - 60);
+      miniWin.setBounds({ x, y, width: b.width, height: b.height });
+    }
+  } catch {
+    miniWin.setPosition(wa.x + wa.width - 420, wa.y + wa.height - 170);
+  }
+  const saveBounds = () => {
+    try {
+      fs.writeFileSync(
+        path.join(app.getPath("userData"), "mini-bounds.json"),
+        JSON.stringify(miniWin.getBounds())
+      );
+    } catch {
+      /* не критично */
+    }
+  };
+  miniWin.on("moved", saveBounds);
+  miniWin.on("resized", saveBounds);
 
   const distIndex = path.join(__dirname, "dist", "index.html");
   miniWin.loadFile(distIndex, { query: { mini: "1" } }).catch(() => {
@@ -485,7 +555,26 @@ function registerIpc() {
 
   ipcMain.handle("open-folder", async (_e, p) => {
     if (typeof p !== "string") return;
-    shell.openPath(path.dirname(p));
+    try {
+      // папка — открываем её саму; файл — открываем папку и выделяем файл
+      const st = await fsp.stat(p);
+      if (st.isDirectory()) await shell.openPath(p);
+      else shell.showItemInFolder(p);
+    } catch {
+      shell.openPath(path.dirname(p));
+    }
+  });
+
+  /* ---- удаление файла с диска (только из разрешённых корней) ---- */
+  ipcMain.handle("delete-file", async (_e, p) => {
+    try {
+      if (typeof p !== "string" || !isAllowed(p)) return { ok: false, error: "Path is not allowed" };
+      await fsp.unlink(p);
+      // подчищаем пустые sidecar-файлы обложек не требуется — обложки в userData
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: String((err && err.message) || err) };
+    }
   });
 
   /* ---- мини-плеер ---- */
@@ -571,6 +660,9 @@ function registerIpc() {
         "--audio-format",
         "mp3",
         "--embed-thumbnail",
+        "--embed-metadata",
+        "--parse-metadata",
+        "uploader:artist",
         "--no-playlist",
         "--newline",
         "--retries",
@@ -592,6 +684,7 @@ function registerIpc() {
       if (ff) args.unshift("--ffmpeg-location", path.dirname(ff));
 
       const proc = spawn(YTDLP(), args, { cwd: target, windowsHide: true });
+      dlProc = proc;
       let buf = "";
       let errTail = "";
       proc.stderr.on("data", (d) => {
@@ -611,6 +704,7 @@ function registerIpc() {
       });
 
       const code = await new Promise((res) => proc.on("close", res));
+      dlProc = null;
       if (code !== 0) throw new Error("yt-dlp (код " + code + "): " + (errTail || "неизвестная ошибка"));
 
       const files = fs
@@ -627,9 +721,12 @@ function registerIpc() {
       try {
         const tags = await getTagsFor(abs);
         if (tags) {
+          let artist = tags.artist || "";
+          // автогенерируемые каналы YouTube называются «Имя - Topic» — убираем хвост
+          artist = artist.replace(/\s*-\s*Topic\s*$/i, "").trim();
           extra = {
             title: tags.title || extra.title,
-            artist: tags.artist || "",
+            artist,
             album: tags.album || "",
             duration: tags.duration || 0,
             coverHash: tags.coverHash,
@@ -641,8 +738,69 @@ function registerIpc() {
       win.webContents.send("dl-done", { path: abs, ...extra });
       return { ok: true };
     } catch (err) {
+      dlProc = null;
       win.webContents.send("dl-error", { message: String((err && err.message) || err) });
       return { ok: false };
+    }
+  });
+
+  /* ---- отмена активного скачивания ---- */
+  ipcMain.handle("dl-cancel", () => {
+    const p = dlProc;
+    if (p) {
+      try {
+        p.kill();
+      } catch {
+        /* уже завершён */
+      }
+      dlProc = null;
+    }
+  });
+
+  /* ---- поиск музыки на YouTube по названию (yt-dlp ytsearch, без скачивания) ---- */
+  ipcMain.handle("dl-search", async (_e, query) => {
+    if (typeof query !== "string" || !query.trim()) return [];
+    try {
+      await ensureYtDlp(getMainWindow());
+      const json = await runYtDlp([
+        "--flat-playlist",
+        "--dump-single-json",
+        "--no-playlist",
+        "ytsearch10:" + query.trim(),
+      ]);
+      const data = JSON.parse(json);
+      const entries = Array.isArray(data) ? data.flatMap((d) => d.entries || []) : data.entries || [];
+      return entries
+        .filter(Boolean)
+        .map((en) => ({
+          url: en.url || en.webpage_url || (en.id ? "https://www.youtube.com/watch?v=" + en.id : null),
+          title: typeof en.title === "string" ? en.title : "",
+          channel: en.uploader || en.channel || "",
+          duration: Number.isFinite(en.duration) ? en.duration : 0,
+          thumb: pickThumb(en),
+        }))
+        .filter((v) => v.url && v.title)
+        .slice(0, 10);
+    } catch (err) {
+      throw new Error(String((err && err.message) || err));
+    }
+  });
+
+  /* ---- метаданные по ссылке (название/обложка/канал) — для карточки в очереди скачивания ---- */
+  ipcMain.handle("dl-meta", async (_e, url) => {
+    if (typeof url !== "string" || !/^https?:\/\//.test(url)) return null;
+    try {
+      await ensureYtDlp(getMainWindow());
+      const json = await runYtDlp(["--no-playlist", "--skip-download", "-J", url], 30000);
+      const d = JSON.parse(json);
+      return {
+        title: typeof d.title === "string" ? d.title : null,
+        channel: d.uploader || d.channel || "",
+        duration: Number.isFinite(d.duration) ? d.duration : 0,
+        thumb: pickThumb(d),
+      };
+    } catch {
+      return null; // метаданные не критичны — скачаем и так
     }
   });
 }

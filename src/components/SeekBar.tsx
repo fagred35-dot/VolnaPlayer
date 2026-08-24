@@ -1,4 +1,5 @@
 import { useState, type CSSProperties } from "react";
+import { useI18n } from "../lib/i18n";
 
 interface Props {
   value: number; // 0..1
@@ -7,6 +8,7 @@ interface Props {
 }
 
 export default function SeekBar({ value, onChange, className = "" }: Props) {
+  const { t } = useI18n();
   const [drag, setDrag] = useState<number | null>(null);
   const shown = drag ?? value;
   const pct = Math.min(100, Math.max(0, shown * 100));
@@ -28,7 +30,7 @@ export default function SeekBar({ value, onChange, className = "" }: Props) {
         setDrag(v);
         onChange(v);
       }}
-      aria-label="Перемотка"
+      aria-label={t("seek")}
     />
   );
 }

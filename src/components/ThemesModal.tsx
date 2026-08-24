@@ -1,5 +1,6 @@
 import { useRef, useState, type CSSProperties } from "react";
 import { CSS_SNIPPETS, THEME_VARS, THEMES } from "../theme/themes";
+import { useI18n } from "../lib/i18n";
 import { IconCode, IconDice, IconImage, IconPalette, IconX } from "./icons";
 
 interface Props {
@@ -23,12 +24,6 @@ interface Props {
 }
 
 type Tab = "themes" | "wall" | "css";
-
-const TABS: Array<{ id: Tab; name: string; icon: typeof IconPalette }> = [
-  { id: "themes", name: "Темы", icon: IconPalette },
-  { id: "wall", name: "Обои", icon: IconImage },
-  { id: "css", name: "CSS-код", icon: IconCode },
-];
 
 const AI_STYLE_CHIPS = [
   "cyberpunk neon",
@@ -80,6 +75,12 @@ Return the CSS code now.`;
 }
 
 export default function ThemesModal(p: Props) {
+  const { t } = useI18n();
+  const TABS: Array<{ id: Tab; name: string; icon: typeof IconPalette }> = [
+    { id: "themes", name: t("tabThemes"), icon: IconPalette },
+    { id: "wall", name: t("tabWallpaper"), icon: IconImage },
+    { id: "css", name: t("tabCss"), icon: IconCode },
+  ];
   const [tab, setTab] = useState<Tab>("themes");
   const [url, setUrl] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
@@ -130,14 +131,14 @@ export default function ThemesModal(p: Props) {
                 <IconPalette className="h-5 w-5" />
               </span>
               <div>
-                <div className="font-display text-lg font-bold">Темы и стили</div>
-                <div className="text-xs font-medium text-white/40">Разгуляйся: темы · обои · CSS-код</div>
+                <div className="font-display text-lg font-bold">{t("themesTitle")}</div>
+                <div className="text-xs font-medium text-white/40">{t("themesSubtitle")}</div>
               </div>
             </div>
             <button
               onClick={p.onClose}
               className="rounded-xl bg-white/[0.06] p-2 text-white/60 transition-all hover:bg-white/[0.12] hover:text-white active:scale-90"
-              aria-label="Закрыть"
+              aria-label={t("close")}
             >
               <IconX className="h-5 w-5" />
             </button>
@@ -166,14 +167,14 @@ export default function ThemesModal(p: Props) {
             <div className="scroll-thin overflow-y-auto pr-1">
               <div className="mb-3 flex items-center justify-between">
                 <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/35">
-                  Готовые темы · сейчас: {current.emoji} {current.name}
+                  {t("readyThemesNow", { current: `${current.emoji} ${current.name}` })}
                 </span>
                 <button
                   onClick={p.onRandom}
                   className="flex items-center gap-1.5 rounded-lg bg-white/[0.06] px-3 py-1.5 text-xs font-bold text-white/70 transition-colors hover:bg-white/[0.12] hover:text-white active:scale-95"
                 >
                   <IconDice className="h-3.5 w-3.5" />
-                  Случайная
+                  {t("randomTheme")}
                 </button>
               </div>
               <div className="grid grid-cols-2 gap-2.5 pb-2 sm:grid-cols-3">
@@ -209,7 +210,7 @@ export default function ThemesModal(p: Props) {
               <div className="flex flex-col items-center gap-4 sm:flex-row">
                 <div className="flex h-28 w-28 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04]">
                   {p.wallpaper ? (
-                    <img src={p.wallpaper} alt="Обои" className="h-full w-full object-cover" />
+                    <img src={p.wallpaper} alt={t("tabWallpaper")} className="h-full w-full object-cover" />
                   ) : (
                     <IconImage className="h-8 w-8 text-white/25" />
                   )}
@@ -221,14 +222,14 @@ export default function ThemesModal(p: Props) {
                       className="flex items-center gap-2 rounded-xl bg-[var(--accent)] px-4 py-2.5 text-sm font-bold text-white transition-all hover:brightness-110 active:scale-95"
                     >
                       <IconImage className="h-4 w-4" />
-                      Загрузить обои
+                      {t("uploadWallpaper")}
                     </button>
                     {p.wallpaper && (
                       <button
                         onClick={p.onWallpaperClear}
                         className="rounded-xl bg-white/[0.06] px-4 py-2.5 text-sm font-bold text-white/70 transition-colors hover:bg-red-500/15 hover:text-red-300"
                       >
-                        Убрать
+                        {t("wallpaperRemove")}
                       </button>
                     )}
                   </div>
@@ -242,7 +243,7 @@ export default function ThemesModal(p: Props) {
                           setUrl("");
                         }
                       }}
-                      placeholder="или ссылка на картинку / GIF…"
+                      placeholder={t("wallpaperUrlPlaceholder")}
                       className="w-full rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-xs font-medium text-white outline-none placeholder:text-white/25 focus:border-[var(--accent)]/60"
                     />
                     <button
@@ -254,20 +255,20 @@ export default function ThemesModal(p: Props) {
                       }}
                       className="shrink-0 rounded-xl bg-white/[0.07] px-3.5 py-2 text-xs font-bold text-white/70 transition-colors hover:bg-white/[0.14] hover:text-white"
                     >
-                      ОК
+                      {t("ok")}
                     </button>
                   </div>
                 </div>
               </div>
 
               <div className="mt-2 rounded-xl bg-[var(--accent)]/8 px-3 py-2 text-[11px] font-semibold text-white/50">
-                🎞 Поддерживаются PNG, JPG и анимированные GIF — гифка оживает прямо в фоне приложения.
+                {t("wallpaperGifNote")}
               </div>
 
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
                 <div>
                   <div className="mb-1.5 flex justify-between text-[11px] font-bold text-white/50">
-                    <span>Затемнение</span>
+                    <span>{t("wallDim")}</span>
                     <span className="text-[var(--accent)]">{Math.round(p.wallDim * 100)}%</span>
                   </div>
                   <input
@@ -282,7 +283,7 @@ export default function ThemesModal(p: Props) {
                 </div>
                 <div>
                   <div className="mb-1.5 flex justify-between text-[11px] font-bold text-white/50">
-                    <span>Размытие</span>
+                    <span>{t("wallBlur")}</span>
                     <span className="text-[var(--accent)]">{Math.round(p.wallBlur)}px</span>
                   </div>
                   <input
@@ -304,13 +305,13 @@ export default function ThemesModal(p: Props) {
             <div className="scroll-thin flex min-h-0 flex-1 flex-col overflow-y-auto pr-1">
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/35">
-                  Свой CSS — применяется мгновенно
+                  {t("customCssInstant")}
                 </span>
                 <button
                   onClick={() => p.onCssEnabled(!p.cssEnabled)}
                   className={`relative rounded-full transition-colors ${p.cssEnabled ? "bg-[var(--accent)]" : "bg-white/15"}`}
                   style={{ width: 44, height: 24 }}
-                  aria-label="Вкл/выкл CSS"
+                  aria-label={t("cssToggle")}
                 >
                   <span
                     className="absolute top-[3px] h-[18px] w-[18px] rounded-full bg-white shadow transition-all"
@@ -342,10 +343,10 @@ export default function ThemesModal(p: Props) {
               {/* 🤖 ИИ-генератор промпта */}
               <div className="mt-3 rounded-2xl bg-white/[0.04] p-3">
                 <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.16em] text-white/35">
-                  🤖 ИИ-генератор темы
+                  {t("aiGenerator")}
                 </div>
                 <p className="mt-1 text-[11px] font-medium leading-relaxed text-white/35">
-                  Опиши стиль (можно по-русски) — получишь готовый промпт на английском для ChatGPT / Claude / любой ИИ.
+                  {t("aiGeneratorHint")}
                 </p>
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {AI_STYLE_CHIPS.map((chip) => (
@@ -365,7 +366,7 @@ export default function ThemesModal(p: Props) {
                 <textarea
                   value={aiStyle}
                   onChange={(e) => setAiStyle(e.target.value)}
-                  placeholder="Например: космос, фиолетовый неон, стеклянные панели, мягкое свечение…"
+                  placeholder={t("aiStylePlaceholder")}
                   className="mt-2 h-16 w-full resize-none rounded-xl border border-white/10 bg-black/25 p-2.5 text-xs font-medium text-white outline-none placeholder:text-white/25 focus:border-[var(--accent)]/60"
                 />
                 <div className="mt-2 flex gap-2">
@@ -373,7 +374,7 @@ export default function ThemesModal(p: Props) {
                     onClick={() => setPromptOut(buildAiPrompt([aiChip, aiStyle].filter(Boolean).join(", ")))}
                     className="flex items-center gap-1.5 rounded-xl bg-[var(--accent)] px-4 py-2 text-xs font-bold text-white transition-all hover:brightness-110 active:scale-95"
                   >
-                    ⚡ Собрать промпт
+                    {t("buildPrompt")}
                   </button>
                   {promptOut && (
                     <button
@@ -382,7 +383,7 @@ export default function ThemesModal(p: Props) {
                         copied ? "bg-emerald-500/20 text-emerald-300" : "bg-white/[0.07] text-white/70 hover:bg-white/[0.14] hover:text-white"
                       }`}
                     >
-                      {copied ? "✓ Скопировано" : "📋 Копировать"}
+                      {copied ? t("copied") : t("copy")}
                     </button>
                   )}
                 </div>
@@ -396,13 +397,15 @@ export default function ThemesModal(p: Props) {
 
                 <div className="mt-3 border-t border-white/[0.07] pt-2.5">
                   <div className="text-[11px] font-semibold text-white/40">
-                    📥 Вставить ответ ИИ — код из <code className="text-white/60">```css ... ```</code> будет извлечён и применён:
+                    {t("pasteAiAnswer").split("<code>")[0]}
+                    <code className="text-white/60">```css ... ```</code>
+                    {t("pasteAiAnswer").split("</code>")[1]}
                   </div>
                   <div className="mt-1.5 flex gap-2">
                     <textarea
                       value={aiAnswer}
                       onChange={(e) => setAiAnswer(e.target.value)}
-                      placeholder="Вставьте сюда ответ ИИ…"
+                      placeholder={t("pasteAiPlaceholder")}
                       className="h-16 flex-1 resize-none rounded-xl border border-white/10 bg-black/25 p-2.5 font-mono text-[11px] text-white outline-none placeholder:text-white/25 focus:border-[var(--accent)]/60"
                     />
                     <button
@@ -410,7 +413,7 @@ export default function ThemesModal(p: Props) {
                       disabled={!aiAnswer.trim()}
                       className="shrink-0 rounded-xl bg-white/[0.07] px-3.5 text-xs font-bold text-white/70 transition-colors hover:bg-white/[0.14] hover:text-white disabled:opacity-30"
                     >
-                      Применить
+                      {t("apply")}
                     </button>
                   </div>
                 </div>
@@ -418,7 +421,7 @@ export default function ThemesModal(p: Props) {
 
               <div className="mt-3 rounded-xl bg-white/[0.04] p-3">
                 <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/35">
-                  Переменные темы — используйте в своём коде
+                  {t("themeVarsTitle")}
                 </div>
                 <div className="mt-1.5 flex flex-wrap gap-1">
                   {THEME_VARS.map((v) => (
@@ -428,8 +431,10 @@ export default function ThemesModal(p: Props) {
                   ))}
                 </div>
                 <div className="mt-2 text-[10px] font-medium leading-relaxed text-white/30">
-                  Пример: <code className="text-white/60">:root {"{ --accent: #ff00aa; --bg-base: #000; }"}</code> — перекрасит весь
-                  интерфейс. Классы для стилизации: <code className="text-white/60">.app-header, .artist-col, .track-cover, .sidebar-stats</code>.
+                  {t("themeVarsExample").split("<code>")[0]}
+                  <code className="text-white/60">:root {"{ --accent: #ff00aa; --bg-base: #000; }"}</code>
+                  {t("themeVarsExample").split("</code>")[1]}
+                  <code className="text-white/60">.app-header, .artist-col, .track-cover, .sidebar-stats</code>.
                 </div>
               </div>
             </div>
@@ -441,9 +446,9 @@ export default function ThemesModal(p: Props) {
               onClick={p.onReset}
               className="rounded-xl bg-red-500/10 px-4 py-2 text-xs font-bold text-red-300 transition-colors hover:bg-red-500/20 active:scale-95"
             >
-              Сбросить всё
+              {t("resetAll")}
             </button>
-            <span className="text-[10px] font-medium text-white/25">Всё сохраняется автоматически</span>
+            <span className="text-[10px] font-medium text-white/25">{t("savedAutomatically")}</span>
           </div>
         </div>
       </div>

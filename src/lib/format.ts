@@ -8,11 +8,11 @@ export function formatTime(sec: number): string {
   return `${m}:${ss}`;
 }
 
-export function formatTotal(sec: number): string {
+export function formatTotal(sec: number, lang: "en" | "ru" = "en"): string {
   if (sec < 3600) return formatTime(sec);
   const h = Math.floor(sec / 3600);
   const m = Math.round((sec % 3600) / 60);
-  return `${h} ч ${m} мин`;
+  return lang === "ru" ? `${h} ч ${m} мин` : `${h} h ${m} min`;
 }
 
 export function parseFileName(name: string): { title: string; artist: string } {

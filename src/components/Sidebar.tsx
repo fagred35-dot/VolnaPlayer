@@ -1,8 +1,7 @@
 import { useRef, useState } from "react";
-import { ACCENTS } from "../types";
-import { formatTotal, plural } from "../lib/format";
+import { formatTotal } from "../lib/format";
+import { countText, useI18n } from "../lib/i18n";
 import {
-  IconChart,
   IconClock,
   IconDownload,
   IconFolder,
@@ -11,10 +10,9 @@ import {
   IconList,
   IconMenu,
   IconMusic,
-  IconPalette,
   IconPlus,
   IconRefresh,
-  IconSliders,
+  IconSettings,
   IconX,
 } from "./icons";
 
@@ -30,17 +28,11 @@ interface Props {
   onAddFiles: () => void;
   onAddFolder: () => void;
   onOpenThemes: () => void;
-  onOpenEq: () => void;
-  onOpenTimer: () => void;
   onOpenDownload: () => void;
   onOpenCredits: () => void;
-  rpcOn: boolean;
-  onToggleRpc: () => void;
+  onOpenSettings: () => void;
   count: number;
   total: number;
-  timerLeft: number | null;
-  accent: string;
-  onAccent: (c: string) => void;
   folderName: string | null;
   folderScanning: boolean;
   onRescan: () => void;
@@ -53,9 +45,11 @@ interface Props {
 }
 
 export default function Sidebar(p: Props) {
+  const { t, lang } = useI18n();
   const btn = "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors";
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
+  const [nameError, setNameError] = useState("");
   /* зажатие логотипа «Волна» ~600мс → список open-source проектов */
   const pressTimer = useRef<number | null>(null);
   const startPress = () => {
@@ -65,8 +59,21 @@ export default function Sidebar(p: Props) {
     if (pressTimer.current) window.clearTimeout(pressTimer.current);
   };
 
+  /* запрет плейлистов с одинаковыми именами (без учёта регистра) */
   const commitCreate = () => {
-    if (newName.trim()) p.onCreatePlaylist(newName.trim());
+    const name = newName.trim();
+    if (!name) {
+      setCreating(false);
+      setNewName("");
+      return;
+    }
+    const dup = p.playlists.some((pl) => pl.name.toLowerCase() === name.toLowerCase());
+    if (dup) {
+      setNameError(t("playlistNameTaken"));
+      return;
+    }
+    setNameError("");
+    p.onCreatePlaylist(name);
     setCreating(false);
     setNewName("");
   };
@@ -85,16 +92,16 @@ export default function Sidebar(p: Props) {
           onClick={p.onOpenCredits}
           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-lg text-white shadow-lg transition-transform hover:scale-105 active:scale-95"
           style={{ background: `linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #22d3ee))` }}
-          title="Зажми — список open-source проектов"
-          aria-label="О приложении"
+          title={t("aboutRowDesc")}
+          aria-label={t("aboutRowTitle")}
         >
           ♪
         </button>
         <div className="flex-1">
-          <div className="font-display text-base font-bold tracking-wide leading-none">ВОЛНА</div>
-          <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/35">лёгкий плеер</div>
+          <div className="font-display text-base font-bold tracking-wide leading-none">{t("appName").toUpperCase()}</div>
+          <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/35">{t("appTagline")}</div>
         </div>
-        <button onClick={p.onClose} className="rounded-lg p-1.5 text-white/40 hover:bg-white/[0.06] hover:text-white lg:hidden" aria-label="Закрыть меню">
+        <button onClick={p.onClose} className="rounded-lg p-1.5 text-white/40 hover:bg-white/[0.06] hover:text-white lg:hidden" aria-label={t("close")}>
           <IconX className="h-5 w-5" />
         </button>
       </div>
@@ -108,7 +115,7 @@ export default function Sidebar(p: Props) {
           }}
         >
           <IconMusic className="h-[18px] w-[18px]" />
-          Библиотека
+          {t("library")}
         </button>
         <button
           className={`${btn} ${p.favOnly && !p.recentOpen ? "bg-white/[0.07] text-white" : "text-white/55 hover:bg-white/[0.04] hover:text-white"}`}
@@ -122,7 +129,7 @@ export default function Sidebar(p: Props) {
           ) : (
             <IconHeart className="h-[18px] w-[18px]" />
           )}
-          Избранное
+          {t("favorites")}
         </button>
         <button
           className={`${btn} ${p.recentOpen && !p.favOnly ? "bg-white/[0.07] text-white" : "text-white/55 hover:bg-white/[0.04] hover:text-white"}`}
@@ -132,40 +139,49 @@ export default function Sidebar(p: Props) {
           }}
         >
           <IconClock className="h-[18px] w-[18px]" />
-          Недавние
+          {t("recent")}
         </button>
       </nav>
 
       {/* Плейлисты */}
       <div className="mt-4">
         <div className="mb-1.5 flex items-center justify-between px-1">
-          <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/35">Плейлисты</span>
+          <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/35">{t("playlists")}</span>
           <button
             onClick={() => setCreating((c) => !c)}
             className="rounded-md p-1 text-white/40 transition-colors hover:bg-white/[0.08] hover:text-white"
-            title="Новый плейлист"
-            aria-label="Новый плейлист"
+            title={t("newPlaylist")}
+            aria-label={t("newPlaylist")}
           >
             <IconPlus className="h-3.5 w-3.5" strokeWidth={3} />
           </button>
         </div>
         <div className="scroll-thin max-h-[170px] space-y-0.5 overflow-y-auto pr-1">
           {creating && (
-            <input
-              autoFocus
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") commitCreate();
-                if (e.key === "Escape") {
-                  setCreating(false);
-                  setNewName("");
-                }
-              }}
-              onBlur={commitCreate}
-              placeholder="Название…"
-              className="w-full rounded-lg border border-[var(--accent)]/60 bg-black/25 px-2.5 py-1.5 text-[13px] font-semibold text-white outline-none placeholder:text-white/25"
-            />
+            <div>
+              <input
+                autoFocus
+                value={newName}
+                onChange={(e) => {
+                  setNewName(e.target.value);
+                  if (nameError) setNameError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitCreate();
+                  if (e.key === "Escape") {
+                    setCreating(false);
+                    setNewName("");
+                    setNameError("");
+                  }
+                }}
+                onBlur={commitCreate}
+                placeholder={t("playlistNamePlaceholder")}
+                className={`w-full rounded-lg border bg-black/25 px-2.5 py-1.5 text-[13px] font-semibold text-white outline-none placeholder:text-white/25 ${
+                  nameError ? "border-red-400/70" : "border-[var(--accent)]/60"
+                }`}
+              />
+              {nameError && <div className="mt-1 px-1 text-[10px] font-bold text-red-400">{nameError}</div>}
+            </div>
           )}
           {p.playlists.map((pl) => {
             const active = pl.id === p.activePlaylistId;
@@ -187,7 +203,7 @@ export default function Sidebar(p: Props) {
                 <button
                   onClick={() => p.onDeletePlaylist(pl.id)}
                   className="mr-1 hidden rounded p-1 text-white/30 transition-colors hover:text-red-400 group-hover:block"
-                  aria-label="Удалить плейлист"
+                  aria-label={t("remove")}
                 >
                   <IconX className="h-3.5 w-3.5" />
                 </button>
@@ -195,9 +211,7 @@ export default function Sidebar(p: Props) {
             );
           })}
           {!p.playlists.length && !creating && (
-            <div className="px-2.5 py-1 text-[11px] leading-relaxed text-white/25">
-              Пока пусто. Создайте плейлист и добавляйте треки через их меню
-            </div>
+            <div className="px-2.5 py-1 text-[11px] leading-relaxed text-white/25">{t("playlistsEmptyHint")}</div>
           )}
         </div>
       </div>
@@ -209,21 +223,21 @@ export default function Sidebar(p: Props) {
           style={{ background: "linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 60%, #22d3ee))", boxShadow: "0 8px 24px -8px var(--accent)" }}
         >
           <IconPlus className="h-4 w-4" strokeWidth={3} />
-          Добавить файлы
+          {t("addFiles")}
         </button>
         <button
           onClick={p.onAddFolder}
           className="glass flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-white/80 transition-colors hover:bg-white/[0.08] hover:text-white"
         >
           <IconFolder className="h-4 w-4" />
-          Выбрать папку с музыкой
+          {t("chooseMusicFolder")}
         </button>
         <button
           onClick={p.onOpenDownload}
           className="glass flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-white/80 transition-colors hover:bg-white/[0.08] hover:text-white"
         >
           <IconDownload className="h-4 w-4" />
-          Скачать по ссылке
+          {t("downloadMusic")}
         </button>
       </div>
 
@@ -242,86 +256,49 @@ export default function Sidebar(p: Props) {
               className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-white/[0.07] py-1.5 text-[11px] font-bold text-white/70 transition-colors hover:bg-white/[0.12] hover:text-white"
             >
               <IconRefresh className="h-3 w-3" />
-              Синхронизация
+              {t("sync")}
             </button>
             <button
               onClick={p.onOpenFolder}
               className="flex-1 rounded-lg bg-white/[0.07] py-1.5 text-[11px] font-bold text-white/70 transition-colors hover:bg-white/[0.12] hover:text-white"
             >
-              В проводнике
+              {t("inExplorer")}
             </button>
           </div>
         </div>
       )}
 
       <div className="glass sidebar-stats mt-4 rounded-2xl p-4">
-        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/35">Библиотека</div>
+        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/35">{t("libraryStats")}</div>
         <div className="mt-2 flex items-end justify-between">
           <div className="font-display text-2xl font-bold">{p.count}</div>
           <div className="pb-0.5 text-xs font-semibold text-white/45">
-            {plural(p.count, ["трек", "трека", "треков"])}
+            {countText(lang, p.count, t("countTracksOne"), t("countTracksFew"), t("countTracksMany"))}
           </div>
         </div>
         <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-white/10">
           <div className="h-full rounded-full" style={{ width: `${Math.min(100, p.total / 600)}%`, background: "var(--accent)" }} />
         </div>
-        <div className="mt-1.5 text-[11px] text-white/35">{formatTotal(p.total)} звука</div>
+        <div className="mt-1.5 text-[11px] text-white/35">
+          {formatTotal(p.total, lang)} {t("ofAudio")}
+        </div>
       </div>
 
       <div className="flex-1" />
 
       <div className="space-y-2">
-        <button onClick={p.onOpenStats} className={`${btn} text-white/55 hover:bg-white/[0.04] hover:text-white`}>
-          <IconChart className="h-[18px] w-[18px]" />
-          Статистика
-        </button>
-        <button onClick={p.onToggleRpc} className={`${btn} ${p.rpcOn ? "text-white/70" : "text-white/35"}`}>
-          <span className={`h-2.5 w-2.5 rounded-full ${p.rpcOn ? "bg-[#5865F2]" : "bg-white/15"}`} />
-          <span className="flex-1 text-left">Discord RPC</span>
-          <span className={`text-[10px] font-bold ${p.rpcOn ? "text-[#5865F2]" : "text-white/25"}`}>
-            {p.rpcOn ? "вкл" : "выкл"}
-          </span>
-        </button>
-        <button onClick={p.onOpenThemes} className={`${btn} text-white/55 hover:bg-white/[0.04] hover:text-white`}>
-          <IconPalette className="h-[18px] w-[18px]" />
-          Темы и стили
-        </button>
         <button
-          onClick={p.onOpenTimer}
-          className={`${btn} ${p.timerLeft !== null ? "bg-[var(--accent)]/15 text-[var(--accent)]" : "text-white/55 hover:bg-white/[0.04] hover:text-white"}`}
+          onClick={p.onOpenSettings}
+          className={`${btn} text-white/55 hover:bg-white/[0.04] hover:text-white`}
         >
-          <IconClock className="h-[18px] w-[18px]" />
-          <span className="flex-1 text-left">Таймер сна</span>
-          {p.timerLeft !== null && (
-            <span className="rounded-md bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-bold text-white">
-              {Math.ceil(p.timerLeft / 60)} мин
-            </span>
-          )}
+          <IconSettings className="h-[18px] w-[18px]" />
+          {t("settings")}
         </button>
-        <button onClick={p.onOpenEq} className={`${btn} text-white/55 hover:bg-white/[0.04] hover:text-white`}>
-          <IconSliders className="h-[18px] w-[18px]" />
-          Эквалайзер
-        </button>
-      </div>
-
-      <div className="sidebar-meta mt-4 px-1">
-        <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-white/35">Акцент</div>
-        <div className="flex gap-2">
-          {ACCENTS.map((c) => (
-            <button
-              key={c}
-              onClick={() => p.onAccent(c)}
-              className="h-6 w-6 rounded-full transition-transform hover:scale-110 active:scale-95"
-              style={{ background: c, outline: p.accent === c ? `2px solid #fff` : "none", outlineOffset: 2 }}
-              aria-label={`Цвет ${c}`}
-            />
-          ))}
-        </div>
       </div>
 
       <div className="mt-4 hidden items-center gap-2 px-1 text-[10px] font-medium text-white/25 lg:flex">
         <IconMenu className="h-3 w-3" />
-        Меню: <span className="rounded bg-white/10 px-1 py-0.5">Ctrl+K</span> поиск
+        {t("menuHintSearch")} <span className="rounded bg-white/10 px-1 py-0.5">Ctrl+K</span>
       </div>
     </aside>
   );

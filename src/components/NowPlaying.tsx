@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { RepeatMode, Track } from "../types";
 import { formatTime } from "../lib/format";
+import { useI18n } from "../lib/i18n";
 import { engine } from "../engine/AudioEngine";
 import {
   IconHeart,
   IconHeartFilled,
   IconNext,
+  IconOrdered,
   IconPause,
   IconPlay,
   IconPrev,
@@ -46,6 +48,7 @@ const ctrl =
 
 export default function NowPlaying(p: Props) {
   const t = p.track;
+  const { t: tr } = useI18n();
   const gainPct = Math.round(p.gain * 100);
   const [disc2d, setDisc2d] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -135,11 +138,11 @@ export default function NowPlaying(p: Props) {
       />
 
       <div className="relative z-10 flex items-center justify-between px-4 py-4 sm:px-6">
-        <div className="font-display text-sm font-bold tracking-wide text-white/70">СЕЙЧАС ИГРАЕТ</div>
+        <div className="font-display text-sm font-bold tracking-wide text-white/70">{tr("nowPlaying").toUpperCase()}</div>
         <button
           onClick={p.onClose}
           className="rounded-xl bg-black/30 p-2.5 text-white/70 backdrop-blur-md transition-all hover:bg-black/50 hover:text-white active:scale-90"
-          aria-label="Закрыть"
+          aria-label={tr("close")}
         >
           <IconX className="h-5 w-5" />
         </button>
@@ -174,7 +177,7 @@ export default function NowPlaying(p: Props) {
         <div className="max-w-[560px] px-2 text-center">
           <div className="font-display text-xl font-bold leading-tight text-white sm:text-2xl md:text-3xl">{t.title}</div>
           <div className="mt-2 text-sm font-semibold text-white/60">
-            {t.artist || "Неизвестный исполнитель"}
+            {t.artist || tr("unknownArtist")}
             {t.album ? <span className="text-white/40"> · {t.album}</span> : ""}
           </div>
         </div>
@@ -188,10 +191,15 @@ export default function NowPlaying(p: Props) {
 
           {/* управление — по центру */}
           <div className="flex items-center justify-center gap-2 sm:gap-3">
-            <button onClick={p.onShuffle} className={`${ctrl} hidden sm:block ${p.shuffle ? "text-[var(--accent)]" : ""}`} aria-label="Перемешать">
-              <IconShuffle className="h-5 w-5" />
+            <button
+              onClick={p.onShuffle}
+              title={p.shuffle ? tr("shuffleOn") : tr("shuffleOff")}
+              className={`${ctrl} hidden sm:block hover:text-[var(--accent)] ${p.shuffle ? "text-[var(--accent)]" : ""}`}
+              aria-label={tr("shuffleOff")}
+            >
+              {p.shuffle ? <IconShuffle className="h-5 w-5" /> : <IconOrdered className="h-5 w-5" />}
             </button>
-            <button onClick={p.onPrev} className={ctrl} aria-label="Предыдущий">
+            <button onClick={p.onPrev} className={ctrl} aria-label={tr("prevTrack")}>
               <IconPrev className="h-6 w-6" />
             </button>
             <button
@@ -201,28 +209,35 @@ export default function NowPlaying(p: Props) {
                 background: "linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 60%, #22d3ee))",
                 boxShadow: "0 8px 30px -8px var(--accent)",
               }}
-              aria-label="Играть / Пауза"
+              aria-label={tr("playPause")}
             >
               {p.isPlaying ? <IconPause className="h-6 w-6" /> : <IconPlay className="h-6 w-6" />}
             </button>
-            <button onClick={p.onNext} className={ctrl} aria-label="Следующий">
+            <button onClick={p.onNext} className={ctrl} aria-label={tr("nextTrack")}>
               <IconNext className="h-6 w-6" />
             </button>
             <button
               onClick={p.onRepeat}
-              className={`${ctrl} hidden sm:block ${p.repeat !== "off" ? "text-[var(--accent)]" : ""}`}
-              aria-label="Повтор"
+              title={
+                p.repeat === "one"
+                  ? tr("repeatThisTrack")
+                  : p.repeat === "all"
+                    ? tr("repeatAllTracks")
+                    : tr("repeatOff")
+              }
+              className={`${ctrl} hidden sm:block hover:text-[var(--accent)] ${p.repeat !== "off" ? "text-[var(--accent)]" : ""}`}
+              aria-label={tr("repeatOff")}
             >
               {p.repeat === "one" ? <IconRepeatOne className="h-5 w-5" /> : <IconRepeat className="h-5 w-5" />}
             </button>
-            <button onClick={() => p.onFav(t.id)} className={`${ctrl} ${t.fav ? "text-[var(--accent)]" : ""}`} aria-label="В избранное">
+            <button onClick={() => p.onFav(t.id)} className={`${ctrl} ${t.fav ? "text-[var(--accent)]" : ""}`} aria-label={tr("favAdd")}>
               {t.fav ? <IconHeartFilled className="h-5 w-5" /> : <IconHeart className="h-5 w-5" />}
             </button>
             <button
               onClick={() => setDisc2d((d) => !d)}
               className={`${ctrl} ${disc2d ? "text-[var(--accent)]" : ""}`}
-              aria-label="2D-обложка"
-              title={disc2d ? "Вернуть винил (3D)" : "Плоская обложка (2D)"}
+              aria-label={tr("disc2d")}
+              title={disc2d ? tr("backToVinyl") : tr("flatCover")}
             >
               <IconSquare className="h-5 w-5" />
             </button>
@@ -239,17 +254,17 @@ export default function NowPlaying(p: Props) {
               onChange={(e) => p.onGain(Number(e.target.value) / 100)}
               className="slider w-40 sm:w-48"
               style={{ "--fill": `${gainPct}%` } as CSSProperties}
-              aria-label="Громкость трека"
+              aria-label={tr("trackVolume")}
             />
             <span className="w-11 text-xs font-bold tabular-nums text-white/60">{gainPct}%</span>
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[11px] font-bold text-white/40">
             <button onClick={p.onSpeed} className="rounded-md px-2 py-1 transition-colors hover:bg-white/[0.06] hover:text-white/70">
-              скорость {p.speed}×
+              {tr("speedNx", { s: p.speed })}
             </button>
-            <span>пробел — пауза</span>
-            <span>← → — перемотка</span>
+            <span>{tr("hintSpacePause")}</span>
+            <span>{tr("hintArrowSeek")}</span>
           </div>
         </div>
       </div>

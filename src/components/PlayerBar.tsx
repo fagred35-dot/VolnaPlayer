@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { RepeatMode, Track } from "../types";
 import { formatTime } from "../lib/format";
+import { useI18n } from "../lib/i18n";
 import {
   IconClock,
   IconDisc,
@@ -11,6 +12,7 @@ import {
   IconMini,
   IconMute,
   IconNext,
+  IconOrdered,
   IconPause,
   IconPlay,
   IconPlus,
@@ -53,6 +55,7 @@ interface Props {
   onGain: (v: number) => void;
   onOpenExplorer: (t: Track) => void;
   onRemoveTrack: (t: Track) => void;
+  onDeleteDevice: (t: Track) => void;
   onOpenMini: () => void;
   /** очередь */
   queueCount: number;
@@ -74,6 +77,7 @@ const gainPresetBtn =
   "flex-1 rounded-lg bg-white/[0.07] py-1.5 text-[11px] font-bold text-white/60 transition-colors hover:bg-white/[0.14] hover:text-white active:scale-95";
 
 export default function PlayerBar(p: Props) {
+  const { t: tr } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
   const [plsOpen, setPlsOpen] = useState(false);
   const [volHover, setVolHover] = useState(false);
@@ -111,7 +115,7 @@ export default function PlayerBar(p: Props) {
           onClick={() => p.track && setMenuOpen((o) => !o)}
           disabled={!p.track}
           className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl p-1 text-left transition-colors hover:bg-white/[0.05] disabled:cursor-default disabled:hover:bg-transparent sm:gap-3"
-          title="Меню трека"
+          title={tr("trackMenu")}
         >
           <TrackCover
             track={t ?? FALLBACK}
@@ -120,10 +124,10 @@ export default function PlayerBar(p: Props) {
           />
           <div className="min-w-0 flex-1">
             <div className="truncate text-[13px] font-bold text-white sm:text-sm">
-              {t ? t.title : "Нет трека"}
+              {t ? t.title : tr("noTrack")}
             </div>
             <div className="hidden truncate text-xs text-white/40 sm:block">
-              {t ? t.artist || "Неизвестный исполнитель" : "Добавьте музыку"}
+              {t ? t.artist || tr("unknownArtist") : tr("addSomeMusic")}
             </div>
           </div>
         </button>
@@ -132,7 +136,7 @@ export default function PlayerBar(p: Props) {
           className={`hidden rounded-lg p-1.5 transition-all hover:scale-110 sm:block ${
             t?.fav ? "text-[var(--accent)]" : "text-white/30 hover:text-white"
           }`}
-          aria-label="В избранное"
+          aria-label={tr("favAdd")}
         >
           {t?.fav ? <IconHeartFilled className="h-4 w-4" /> : <IconHeart className="h-4 w-4" />}
         </button>
@@ -150,7 +154,7 @@ export default function PlayerBar(p: Props) {
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-bold text-white">{t.title}</div>
                   <div className="truncate text-xs text-white/40">
-                    {t.artist || "Неизвестный исполнитель"}
+                    {t.artist || tr("unknownArtist")}
                     {t.album ? ` · ${t.album}` : ""}
                   </div>
                 </div>
@@ -159,7 +163,7 @@ export default function PlayerBar(p: Props) {
                   className={`rounded-lg p-2 transition-all hover:scale-110 ${
                     t.fav ? "text-[var(--accent)]" : "text-white/30 hover:text-white"
                   }`}
-                  aria-label="В избранное"
+                  aria-label={tr("favAdd")}
                 >
                   {t.fav ? <IconHeartFilled className="h-4.5 w-4.5" /> : <IconHeart className="h-4.5 w-4.5" />}
                 </button>
@@ -167,7 +171,7 @@ export default function PlayerBar(p: Props) {
 
               <div className="mt-3">
                 <div className="flex items-center justify-between text-[11px] font-bold text-white/40">
-                  <span>Громкость трека</span>
+                  <span>{tr("trackVolume")}</span>
                   <span className="text-[var(--accent)]">{gainPct}%</span>
                 </div>
                 <input
@@ -178,16 +182,16 @@ export default function PlayerBar(p: Props) {
                   onChange={(e) => p.onGain(Number(e.target.value) / 100)}
                   className="modal-slider mt-1.5"
                   style={{ "--fill": `${gainPct}%` } as CSSProperties}
-                  aria-label="Громкость трека"
+                  aria-label={tr("trackVolume")}
                 />
                 <div className="mt-1.5 flex gap-1.5">
-                  <button onClick={() => lowerGain(0.3)} className={gainPresetBtn} title="Тише на 30%">
+                  <button onClick={() => lowerGain(0.3)} className={gainPresetBtn} title={tr("quieter30")}>
                     −30%
                   </button>
-                  <button onClick={() => lowerGain(0.5)} className={gainPresetBtn} title="Тише на 50%">
+                  <button onClick={() => lowerGain(0.5)} className={gainPresetBtn} title={tr("quieter50")}>
                     −50%
                   </button>
-                  <button onClick={() => p.onGain(1)} className={gainPresetBtn} title="Стандартная громкость">
+                  <button onClick={() => p.onGain(1)} className={gainPresetBtn} title={tr("standardVolume")}>
                     100%
                   </button>
                 </div>
@@ -204,7 +208,7 @@ export default function PlayerBar(p: Props) {
                   className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-sm font-semibold text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white"
                 >
                   <IconDisc className="h-4 w-4" />
-                  Сейчас играет
+                  {tr("nowPlaying")}
                 </button>
                 <button
                   onClick={() => {
@@ -214,14 +218,14 @@ export default function PlayerBar(p: Props) {
                   className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-sm font-semibold text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white"
                 >
                   <IconPlus className="h-4 w-4" />
-                  В очередь
+                  {tr("addToQueue")}
                 </button>
                 <button
                   onClick={() => setPlsOpen((o) => !o)}
                   className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-sm font-semibold text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white"
                 >
                   <IconList className="h-4 w-4" />
-                  В плейлист
+                  {tr("addToPlaylist")}
                   <span className="ml-auto text-[10px] text-white/30">▸</span>
                 </button>
                 {plsOpen && (
@@ -241,7 +245,7 @@ export default function PlayerBar(p: Props) {
                     ))}
                     {!p.playlists.length && (
                       <div className="px-2 py-1 text-[11px] leading-relaxed text-white/30">
-                        Создайте плейлист в боковом меню
+                        {tr("createPlaylistSidebarHint")}
                       </div>
                     )}
                   </div>
@@ -255,7 +259,7 @@ export default function PlayerBar(p: Props) {
                     className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-sm font-semibold text-amber-300/80 transition-colors hover:bg-amber-500/10 hover:text-amber-300"
                   >
                     <IconX className="h-4 w-4" />
-                    Убрать из плейлиста
+                    {tr("removeFromPlaylist")}
                   </button>
                 )}
                 {window.volna && t.path && (
@@ -267,7 +271,7 @@ export default function PlayerBar(p: Props) {
                     className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-sm font-semibold text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white"
                   >
                     <IconFolder className="h-4 w-4" />
-                    Открыть в проводнике
+                    {tr("showInExplorer")}
                   </button>
                 )}
                 <button
@@ -278,8 +282,20 @@ export default function PlayerBar(p: Props) {
                   className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-sm font-semibold text-red-300/80 transition-colors hover:bg-red-500/10 hover:text-red-300"
                 >
                   <IconTrash className="h-4 w-4" />
-                  Удалить из библиотеки
+                  {tr("removeFromLibrary")}
                 </button>
+                {window.volna && t.path && (
+                  <button
+                    onClick={() => {
+                      p.onDeleteDevice(t);
+                      setMenuOpen(false);
+                    }}
+                    className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-sm font-semibold text-red-300/80 transition-colors hover:bg-red-500/10 hover:text-red-300"
+                  >
+                    <IconTrash className="h-4 w-4" />
+                    {tr("deleteFromDevice")}
+                  </button>
+                )}
               </div>
             </div>
           </>
@@ -289,10 +305,15 @@ export default function PlayerBar(p: Props) {
       {/* Центр */}
       <div className="flex min-w-0 flex-1 flex-col items-center gap-1">
         <div className="flex items-center gap-1 sm:gap-2">
-          <button onClick={p.onShuffle} className={`${ctrlBtn} hidden sm:block ${p.shuffle ? "text-[var(--accent)]" : ""}`} aria-label="Перемешать">
-            <IconShuffle className="h-[18px] w-[18px]" />
+          <button
+            onClick={p.onShuffle}
+            title={p.shuffle ? tr("shuffleOn") : tr("shuffleOff")}
+            className={`${ctrlBtn} hidden sm:block hover:text-[var(--accent)] ${p.shuffle ? "text-[var(--accent)]" : ""}`}
+            aria-label={tr("shuffleOff")}
+          >
+            {p.shuffle ? <IconShuffle className="h-[18px] w-[18px]" /> : <IconOrdered className="h-[18px] w-[18px]" />}
           </button>
-          <button onClick={p.onPrev} className={ctrlBtn} aria-label="Предыдущий">
+          <button onClick={p.onPrev} className={ctrlBtn} aria-label={tr("prevTrack")}>
             <IconPrev className="h-5 w-5" />
           </button>
           <button
@@ -303,17 +324,24 @@ export default function PlayerBar(p: Props) {
               background: "linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 60%, #22d3ee))",
               boxShadow: "0 6px 22px -6px var(--accent)",
             }}
-            aria-label="Играть / Пауза"
+            aria-label={tr("playPause")}
           >
             {p.isPlaying ? <IconPause className="h-5 w-5" /> : <IconPlay className="h-5 w-5" />}
           </button>
-          <button onClick={p.onNext} className={ctrlBtn} aria-label="Следующий">
+          <button onClick={p.onNext} className={ctrlBtn} aria-label={tr("nextTrack")}>
             <IconNext className="h-5 w-5" />
           </button>
           <button
             onClick={p.onRepeat}
-            className={`${ctrlBtn} hidden sm:block ${p.repeat !== "off" ? "text-[var(--accent)]" : ""}`}
-            aria-label="Повтор"
+            title={
+              p.repeat === "one"
+                ? tr("repeatThisTrack")
+                : p.repeat === "all"
+                  ? tr("repeatAllTracks")
+                  : tr("repeatOff")
+            }
+            className={`${ctrlBtn} hidden sm:block hover:text-[var(--accent)] ${p.repeat !== "off" ? "text-[var(--accent)]" : ""}`}
+            aria-label={tr("repeatOff")}
           >
             {p.repeat === "one" ? <IconRepeatOne className="h-[18px] w-[18px]" /> : <IconRepeat className="h-[18px] w-[18px]" />}
           </button>
@@ -331,7 +359,7 @@ export default function PlayerBar(p: Props) {
 
       {/* Право */}
       <div className="flex w-[min(30vw,280px)] shrink-0 items-center justify-end gap-0.5 sm:w-auto sm:gap-1 lg:w-[280px]">
-        <button onClick={p.onSpeed} className={`${ctrlBtn} hidden text-xs font-extrabold tracking-wide lg:block`} title="Скорость">
+        <button onClick={p.onSpeed} className={`${ctrlBtn} hidden text-xs font-extrabold tracking-wide lg:block`} title={tr("speedTitle")}>
           {p.speed}×
         </button>
 
@@ -339,8 +367,8 @@ export default function PlayerBar(p: Props) {
         <button
           onClick={p.onOpenMini}
           className={`${ctrlBtn} ${window.volna ? "" : "opacity-40"}`}
-          title={window.volna ? "Мини-плеер" : "Мини-плеер доступен в Windows-приложении"}
-          aria-label="Мини-плеер"
+          title={window.volna ? tr("miniPlayer") : tr("miniPlayerOnlyWindows")}
+          aria-label={tr("miniPlayer")}
         >
           <IconMini className="h-[18px] w-[18px]" />
         </button>
@@ -349,8 +377,8 @@ export default function PlayerBar(p: Props) {
         <button
           onClick={p.onOpenQueue}
           className={`${ctrlBtn} relative hidden sm:block ${p.queueCount > 0 ? "text-[var(--accent)]" : ""}`}
-          aria-label="Очередь"
-          title="Очередь"
+          aria-label={tr("queueBtn")}
+          title={tr("queueBtn")}
         >
           <IconList className="h-[18px] w-[18px]" />
           {p.queueCount > 0 && (
@@ -366,7 +394,7 @@ export default function PlayerBar(p: Props) {
           onMouseEnter={showVol}
           onMouseLeave={hideVol}
         >
-          <button onClick={p.onMute} className={ctrlBtn} aria-label="Без звука" title="Без звука">
+          <button onClick={p.onMute} className={ctrlBtn} aria-label={tr("muteTitle")} title={tr("muteTitle")}>
             {p.muted || p.volume === 0 ? <IconMute className="h-[18px] w-[18px]" /> : <IconVolume className="h-[18px] w-[18px]" />}
           </button>
           {volHover && (
@@ -385,9 +413,9 @@ export default function PlayerBar(p: Props) {
                     onChange={(e) => p.onVolume(Number(e.target.value) / 100)}
                     className="vslider"
                     style={{ height: 130 } as CSSProperties}
-                    aria-label="Общая громкость"
+                    aria-label={tr("masterVolume")}
                   />
-                  <span className="text-[9px] font-bold leading-none text-white/40">Общая</span>
+                  <span className="text-[9px] font-bold leading-none text-white/40">{tr("masterShort")}</span>
                   <span className="text-[10px] font-bold leading-none text-[var(--accent)]">{volPct}%</span>
                 </div>
                 <div className="h-[130px] w-px bg-white/10" />
@@ -401,9 +429,9 @@ export default function PlayerBar(p: Props) {
                     onChange={(e) => p.onGain(Number(e.target.value) / 100)}
                     className="vslider"
                     style={{ height: 130 } as CSSProperties}
-                    aria-label="Громкость трека"
+                    aria-label={tr("trackVolume")}
                   />
-                  <span className="text-[9px] font-bold leading-none text-white/40">Трек</span>
+                  <span className="text-[9px] font-bold leading-none text-white/40">{tr("trackShort")}</span>
                   <span className={`text-[10px] font-bold leading-none ${p.gain !== 1 ? "text-[var(--accent)]" : "text-white/40"}`}>
                     {gainPct}%
                   </span>
@@ -414,7 +442,7 @@ export default function PlayerBar(p: Props) {
                   onClick={() => p.onGain(1)}
                   className="mt-2 w-full rounded-lg bg-white/[0.07] py-1 text-[10px] font-bold text-white/50 transition-colors hover:bg-white/[0.14] hover:text-white"
                 >
-                  Сбросить трек: 100%
+                  {tr("resetTrackVolume")}
                 </button>
               )}
               <div className="mt-2 flex justify-between gap-1">
@@ -430,13 +458,13 @@ export default function PlayerBar(p: Props) {
         </div>
 
         <div className="mx-1 hidden h-6 w-px bg-white/10 sm:block" />
-        <button onClick={p.onOpenEq} className={`${ctrlBtn} hidden md:block ${p.eqOn ? "text-[var(--accent)]" : ""}`} aria-label="Эквалайзер">
+        <button onClick={p.onOpenEq} className={`${ctrlBtn} hidden md:block ${p.eqOn ? "text-[var(--accent)]" : ""}`} aria-label={tr("equalizer")} title={tr("equalizer")}>
           <IconSliders className="h-[18px] w-[18px]" />
         </button>
-        <button onClick={p.onOpenTimer} className={`${ctrlBtn} hidden md:block ${p.timerLeft !== null ? "text-[var(--accent)]" : ""}`} aria-label="Таймер сна">
+        <button onClick={p.onOpenTimer} className={`${ctrlBtn} hidden md:block ${p.timerLeft !== null ? "text-[var(--accent)]" : ""}`} aria-label={tr("sleepTimer")} title={tr("sleepTimer")}>
           <IconClock className="h-[18px] w-[18px]" />
         </button>
-        <button onClick={p.onOpenNow} className={ctrlBtn} aria-label="Во весь экран">
+        <button onClick={p.onOpenNow} className={ctrlBtn} aria-label={tr("fullscreenNow")} title={tr("fullscreenNow")}>
           <IconNext className="h-4 w-4 rotate-[-90deg]" />
         </button>
       </div>

@@ -1,5 +1,6 @@
 import type { Track } from "../types";
 import { formatTime } from "../lib/format";
+import { countText, useI18n } from "../lib/i18n";
 import TrackCover from "./TrackCover";
 import { IconList, IconTrash, IconX } from "./icons";
 
@@ -13,6 +14,7 @@ interface Props {
 
 /** Очередь воспроизведения — что сыграет следующим */
 export default function QueueModal({ queue, onPlay, onRemove, onClear, onClose }: Props) {
+  const { t, lang } = useI18n();
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm sm:p-6"
@@ -30,9 +32,9 @@ export default function QueueModal({ queue, onPlay, onRemove, onClear, onClose }
               <IconList className="h-5 w-5" />
             </span>
             <div>
-              <div className="font-display text-lg font-bold">Очередь</div>
+              <div className="font-display text-lg font-bold">{t("queueTitle")}</div>
               <div className="text-xs font-medium text-white/40">
-                {queue.length ? `${queue.length} ${queue.length === 1 ? "трек" : queue.length < 5 ? "трека" : "треков"} дальше` : "пусто"}
+                {queue.length ? t("tracksUpNext", { n: countText(lang, queue.length, t("countTracksOne"), t("countTracksFew"), t("countTracksMany")) }) : t("emptyQueueWord")}
               </div>
             </div>
           </div>
@@ -42,13 +44,13 @@ export default function QueueModal({ queue, onPlay, onRemove, onClear, onClose }
                 onClick={onClear}
                 className="rounded-lg bg-white/[0.06] px-2.5 py-1.5 text-[11px] font-bold text-white/50 transition-colors hover:bg-red-500/15 hover:text-red-300"
               >
-                Очистить
+                {t("clearQueue")}
               </button>
             )}
             <button
               onClick={onClose}
               className="rounded-xl bg-white/[0.06] p-2 text-white/60 transition-all hover:bg-white/[0.12] hover:text-white active:scale-90"
-              aria-label="Закрыть"
+              aria-label={t("close")}
             >
               <IconX className="h-5 w-5" />
             </button>
@@ -59,32 +61,30 @@ export default function QueueModal({ queue, onPlay, onRemove, onClear, onClose }
           {queue.length === 0 ? (
             <div className="flex h-full min-h-[120px] flex-col items-center justify-center gap-2 py-8 text-center">
               <div className="text-3xl">📃</div>
-              <div className="text-sm font-semibold text-white/50">Очередь пуста</div>
-              <div className="max-w-[260px] text-xs text-white/30">
-                Откройте меню трека (клик по названию внизу) и нажмите «В очередь»
-              </div>
+              <div className="text-sm font-semibold text-white/50">{t("queueEmpty")}</div>
+              <div className="max-w-[260px] text-xs text-white/30">{t("queueEmptyHint")}</div>
             </div>
           ) : (
             <div className="space-y-1">
-              {queue.map((t) => (
+              {queue.map((tr) => (
                 <div
-                  key={t.id}
-                  onClick={() => onPlay(t)}
+                  key={tr.id}
+                  onClick={() => onPlay(tr)}
                   className="group flex cursor-pointer items-center gap-3 rounded-xl px-2 py-2 transition-colors hover:bg-white/[0.05]"
                 >
-                  <TrackCover track={t} className="h-9 w-9 rounded-lg text-sm" />
+                  <TrackCover track={tr} className="h-9 w-9 rounded-lg text-sm" />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold text-white/85">{t.title}</div>
-                    <div className="truncate text-xs text-white/40">{t.artist || "Неизвестный исполнитель"}</div>
+                    <div className="truncate text-sm font-semibold text-white/85">{tr.title}</div>
+                    <div className="truncate text-xs text-white/40">{tr.artist || t("unknownArtist")}</div>
                   </div>
-                  <span className="text-[11px] tabular-nums text-white/30">{t.duration > 0 ? formatTime(t.duration) : "—:——"}</span>
+                  <span className="text-[11px] tabular-nums text-white/30">{tr.duration > 0 ? formatTime(tr.duration) : "—:——"}</span>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      onRemove(t.id);
+                      onRemove(tr.id);
                     }}
                     className="rounded-lg p-1.5 text-white/25 opacity-0 transition-all hover:text-red-400 group-hover:opacity-100"
-                    aria-label="Убрать из очереди"
+                    aria-label={t("removeFromPlaylist")}
                   >
                     <IconTrash className="h-4 w-4" />
                   </button>

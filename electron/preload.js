@@ -9,8 +9,10 @@ contextBridge.exposeInMainWorld("volna", {
   scanFolder: (path) => ipcRenderer.invoke("scan-folder", path),
   /** Теги (название, исполнитель, альбом, длительность, обложка) для файлов */
   getTags: (paths) => ipcRenderer.invoke("get-tags", paths),
-  /** Открыть папку файла в проводнике */
+  /** Открыть папку файла в проводнике (с выделением файла) */
   openInExplorer: (path) => ipcRenderer.invoke("open-folder", path),
+  /** Удалить файл с диска */
+  deleteFile: (path) => ipcRenderer.invoke("delete-file", path),
   /** ---- мини-плеер ---- */
   miniOpen: () => ipcRenderer.invoke("mini-open"),
   miniCommand: (cmd) => ipcRenderer.send("mini-command", cmd),
@@ -37,7 +39,13 @@ contextBridge.exposeInMainWorld("volna", {
   rpcUpdate: (data) => ipcRenderer.send("rpc-update", data),
   setRpcEnabled: (on) => ipcRenderer.send("rpc-enabled", on),
   /** ---- скачивание аудио (yt-dlp) ---- */
-  dlStart: (url) => ipcRenderer.invoke("dl-download", url),
+  dlStart: (url, destDir) => ipcRenderer.invoke("dl-download", url, destDir),
+  /** Поиск треков на YouTube по названию (yt-dlp ytsearch) */
+  dlSearch: (query) => ipcRenderer.invoke("dl-search", query),
+  /** Метаданные по ссылке (название/обложка/канал), без скачивания */
+  dlMeta: (url) => ipcRenderer.invoke("dl-meta", url),
+  /** Отменить активное скачивание */
+  dlCancel: () => ipcRenderer.invoke("dl-cancel"),
   onDlProgress: (cb) => {
     const l = (_e, p) => cb(p);
     ipcRenderer.on("dl-progress", l);

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import type { SortKey, Track } from "../types";
 import { formatTime } from "../lib/format";
+import { useI18n } from "../lib/i18n";
 import { IconHeart, IconHeartFilled, IconTrash } from "./icons";
 import TrackCover from "./TrackCover";
 
@@ -39,6 +40,7 @@ function MiniEq({ playing, accent }: { playing: boolean; accent: string }) {
 }
 
 export default function Playlist(p: Props) {
+  const { t } = useI18n();
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [overIdx, setOverIdx] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -62,26 +64,28 @@ export default function Playlist(p: Props) {
       <div className={`${cols} border-b border-white/[0.06] px-5 pb-2`}>
         <div className="text-center text-[11px] font-bold uppercase tracking-[0.14em] text-white/25">#</div>
         <button className={`${header} text-left`} onClick={() => p.onSort("title")}>
-          Название{sortArrow("title")}
+          {t("colTitle")}
+          {sortArrow("title")}
         </button>
         <button className={`${header} hidden text-left lg:block`} onClick={() => p.onSort("artist")}>
-          Исполнитель{sortArrow("artist")}
+          {t("colArtist")}
+          {sortArrow("artist")}
         </button>
         <button className={`${header} text-right`} onClick={() => p.onSort("duration")}>
-          <span className="hidden sm:inline">Время</span>
+          <span className="hidden sm:inline">{t("colTime")}</span>
           <span className="sm:hidden">⌛</span>
           {sortArrow("duration")}
         </button>
       </div>
 
       <div ref={scrollRef} className="scroll-thin flex-1 overflow-y-auto px-2 py-2">
-        {p.tracks.map((t, i) => {
-          const active = t.id === p.currentId;
+        {p.tracks.map((tr, i) => {
+          const active = tr.id === p.currentId;
           const dragging = dragIdx === i;
           const over = overIdx === i && dragIdx !== null && dragIdx !== i;
           return (
             <div
-              key={t.id}
+              key={tr.id}
               draggable={sortable}
               onDragStart={() => setDragIdx(i)}
               onDragEnd={() => {
@@ -98,9 +102,9 @@ export default function Playlist(p: Props) {
                 setDragIdx(null);
                 setOverIdx(null);
               }}
-              onClick={() => p.onPlay(t)}
-              onContextMenu={(e) => p.onTrackMenu(e, t)}
-              data-tid={t.id}
+              onClick={() => p.onPlay(tr)}
+              onContextMenu={(e) => p.onTrackMenu(e, tr)}
+              data-tid={tr.id}
               className={`group ${cols} cursor-pointer items-center rounded-xl px-3 py-2 transition-colors ${
                 active ? "bg-white/[0.07]" : "hover:bg-white/[0.045]"
               } ${dragging ? "opacity-40" : ""} ${over ? "shadow-[inset_0_2px_0_0_var(--accent)]" : ""}`}
@@ -114,46 +118,50 @@ export default function Playlist(p: Props) {
               </div>
 
               <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
-                <TrackCover track={t} className="h-9 w-9 rounded-lg text-sm sm:h-10 sm:w-10" iconClassName="text-white/90" />
+                <TrackCover track={tr} className="h-9 w-9 rounded-lg text-sm sm:h-10 sm:w-10" iconClassName="text-white/90" />
                 <div className="min-w-0">
                   <div className={`truncate text-sm font-semibold ${active ? "text-[var(--accent)]" : "text-white/90"}`}>
-                    {t.title || t.fileName}
+                    {tr.title || tr.fileName}
                   </div>
                   <div className="truncate text-xs text-white/40">
-                    {t.artist || "Неизвестный исполнитель"}
-                    {t.album ? ` · ${t.album}` : ""}
+                    {tr.artist || t("unknownArtist")}
+                    {tr.album ? ` · ${tr.album}` : ""}
                   </div>
                 </div>
               </div>
 
-              <div className="artist-col hidden truncate text-sm text-white/50 lg:block">{t.artist || "—"}</div>
+              <div className="artist-col hidden truncate text-sm text-white/50 lg:block">{tr.artist || "—"}</div>
 
-              <div className="flex items-center justify-end gap-0.5 sm:gap-1">
-                <span className="mr-1 text-[11px] tabular-nums text-white/40 sm:text-xs">
-                  {t.duration > 0 ? formatTime(t.duration) : "—:——"}
+              <div className="relative flex items-center justify-end">
+                {/* время — фиксированной ширины у правого края, ровно под заголовком */}
+                <span className="w-12 text-right text-[11px] tabular-nums text-white/40 sm:w-14 sm:text-xs">
+                  {tr.duration > 0 ? formatTime(tr.duration) : "—:——"}
                 </span>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    p.onFav(t.id);
-                  }}
-                  className={`rounded-lg p-1.5 transition-all hover:scale-110 ${
-                    t.fav ? "text-[var(--accent)]" : "text-white/25 opacity-0 hover:text-white/70 group-hover:opacity-100"
-                  }`}
-                  aria-label="В избранное"
-                >
-                  {t.fav ? <IconHeartFilled className="h-4 w-4" /> : <IconHeart className="h-4 w-4" />}
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    p.onRemove(t.id);
-                  }}
-                  className="rounded-lg p-1.5 text-white/25 opacity-0 transition-all hover:scale-110 hover:text-red-400 group-hover:opacity-100"
-                  aria-label="Удалить"
-                >
-                  <IconTrash className="h-4 w-4" />
-                </button>
+                {/* кнопки появляются поверх времени при наведении */}
+                <div className="absolute inset-y-0 right-0 flex items-center gap-0.5 rounded-lg bg-[#12151d]/95 pl-1 opacity-0 shadow-lg backdrop-blur-sm transition-opacity group-hover:opacity-100 sm:gap-1">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      p.onFav(tr.id);
+                    }}
+                    className={`rounded-lg p-1.5 transition-all hover:scale-110 ${
+                      tr.fav ? "text-[var(--accent)]" : "text-white/25 hover:text-white/70"
+                    }`}
+                    aria-label={t("favAdd")}
+                  >
+                    {tr.fav ? <IconHeartFilled className="h-4 w-4" /> : <IconHeart className="h-4 w-4" />}
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      p.onRemove(tr.id);
+                    }}
+                    className="rounded-lg p-1.5 text-white/25 transition-all hover:scale-110 hover:text-red-400"
+                    aria-label={t("remove")}
+                  >
+                    <IconTrash className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
             </div>
           );
@@ -161,8 +169,8 @@ export default function Playlist(p: Props) {
         {!p.tracks.length && (
           <div className="flex h-full flex-col items-center justify-center gap-2 py-16 text-center">
             <div className="text-4xl">🔍</div>
-            <div className="text-sm font-semibold text-white/50">{p.emptyText ?? "Ничего не найдено"}</div>
-            <div className="text-xs text-white/30">Попробуйте другой запрос или сбросьте фильтры</div>
+            <div className="text-sm font-semibold text-white/50">{p.emptyText ?? t("nothingFound")}</div>
+            <div className="text-xs text-white/30">{t("nothingFoundHint")}</div>
           </div>
         )}
       </div>

@@ -1,4 +1,5 @@
 import { EQ_FREQS, EQ_PRESETS, type EqState } from "../types";
+import { useI18n } from "../lib/i18n";
 import { IconX } from "./icons";
 
 interface Props {
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export default function Equalizer({ eq, onToggle, onChange, onPreset, onClose }: Props) {
+  const { t } = useI18n();
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm" onClick={onClose}>
       <div
@@ -18,15 +20,15 @@ export default function Equalizer({ eq, onToggle, onChange, onPreset, onClose }:
       >
         <div className="mb-5 flex items-center justify-between">
           <div>
-            <div className="font-display text-lg font-bold">Эквалайзер</div>
-            <div className="mt-1 text-xs font-medium text-white/40">10 полос · Web Audio API · 0% CPU в паузе</div>
+            <div className="font-display text-lg font-bold">{t("equalizer")}</div>
+            <div className="mt-1 text-xs font-medium text-white/40">{t("eqSubtitle")}</div>
           </div>
           <div className="flex items-center gap-3">
             <button
               onClick={onToggle}
               className={`relative h-7 w-13 rounded-full transition-colors ${eq.enabled ? "bg-[var(--accent)]" : "bg-white/15"}`}
               style={{ width: 52 }}
-              aria-label="Вкл/выкл"
+              aria-label={t("eqOnOff")}
             >
               <span
                 className="absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-all"
@@ -36,7 +38,7 @@ export default function Equalizer({ eq, onToggle, onChange, onPreset, onClose }:
             <button
               onClick={onClose}
               className="rounded-xl bg-white/[0.06] p-2 text-white/60 transition-all hover:bg-white/[0.12] hover:text-white active:scale-90"
-              aria-label="Закрыть"
+              aria-label={t("close")}
             >
               <IconX className="h-5 w-5" />
             </button>
@@ -76,17 +78,17 @@ export default function Equalizer({ eq, onToggle, onChange, onPreset, onClose }:
                 value={g}
                 onChange={(e) => onChange(i, Number(e.target.value))}
                 className="vslider"
-                aria-label={`Полоса ${EQ_FREQS[i]} Гц`}
+                aria-label={t("eqBandHz", { hz: EQ_FREQS[i] })}
               />
               <span className="text-[10px] font-bold text-white/35">
-                {EQ_FREQS[i] >= 1000 ? `${EQ_FREQS[i] / 1000}к` : EQ_FREQS[i]}
+                {EQ_FREQS[i] >= 1000 ? `${EQ_FREQS[i] / 1000}${t("eqKilo")}` : EQ_FREQS[i]}
               </span>
             </div>
           ))}
         </div>
 
         <div className="mt-5 flex items-center justify-between text-[11px] font-medium text-white/30">
-          <span>{eq.enabled ? "Эквалайзер активен" : "Эквалайзер выключен — звук идёт напрямую"}</span>
+          <span>{eq.enabled ? t("eqActive") : t("eqInactive")}</span>
           <span>{eq.preset}</span>
         </div>
       </div>

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { deleteStored, getAllStored, loadMeta, saveMeta, saveTracks } from "../lib/db";
+import { deleteStored, getAllStored, getStoredBlob, loadMeta, saveMeta, saveTracks } from "../lib/db";
 import { parseFileName } from "../lib/format";
 import type { FolderScan, TagInfo } from "../electron.d";
 import type { StoredTrack, Track } from "../types";
 import { hashId, uid } from "../types";
 
-function probeDuration(file: File): Promise<number> {
+function probeDuration(file: File | Blob): Promise<number> {
   return new Promise((resolve) => {
     const url = URL.createObjectURL(file);
     const a = new Audio();
@@ -50,9 +50,10 @@ export function useTracks() {
         const list: Track[] = stored.map(({ blob: _b, ...meta }) => meta);
         if (order && order.length) {
           const pos = new Map(order.map((id, i) => [id, i]));
-          list.sort((a, b) => (pos.get(a.id) ?? 1e9) - (pos.get(b.id) ?? 1e9) || a.addedAt - b.addedAt);
+          list.sort((a, b) => (pos.get(a.id) ?? 1e9) - (pos.get(b.id) ?? 1e9) || b.addedAt - a.addedAt);
         } else {
-          list.sort((a, b) => a.addedAt - b.addedAt);
+          // без сохранённого порядка — новые сверху
+          list.sort((a, b) => b.addedAt - a.addedAt);
         }
         setTracks(list);
         if (savedFolder) {
@@ -78,6 +79,60 @@ export function useTracks() {
   const persistOrder = useCallback((list: Track[]) => {
     saveMeta("order", list.map((t) => t.id)).catch(() => undefined);
   }, []);
+
+  /* ---------- дочитываем теги треков, у чего-то не хватает ----------
+     Некоторые файлы не успевают/не могут отдать длительность при добавлении
+     (медленный диск, редкий формат), а старые скачивания могли пройти без
+     исполнителя и обложки. Здесь молча досчитываем недостающее в фоне. */
+  useEffect(() => {
+    if (!ready) return;
+    let alive = true;
+    (async () => {
+      const need = tracksRef.current.filter(
+        (t) => !t.duration || (t.path && (!t.artist || !t.coverHash))
+      );
+      for (const tr of need) {
+        if (!alive) return;
+        let tags: TagInfo | undefined;
+        if (tr.path && window.volna) {
+          try {
+            tags = (await window.volna.getTags([tr.path]))?.[tr.path];
+          } catch {
+            /* пропускаем */
+          }
+        }
+        let d = tags?.duration ?? 0;
+        if (!d && !tr.path) {
+          try {
+            const blob = await getStoredBlob(tr.id);
+            if (blob) d = await probeDuration(blob);
+          } catch {
+            /* пропускаем */
+          }
+        }
+        const patch: Partial<Track> = {};
+        if (d && !tr.duration) patch.duration = d;
+        if (tags) {
+          if (tags.artist && !tr.artist) patch.artist = tags.artist;
+          if (tags.album && !tr.album) patch.album = tags.album;
+          if (tags.coverHash && !tr.coverHash) patch.coverHash = tags.coverHash;
+        }
+        if (!alive || !Object.keys(patch).length) continue;
+        setTracks((prev) => prev.map((x) => (x.id === tr.id ? { ...x, ...patch } : x)));
+        // сохраняем в IndexedDB, если трек там хранится (файлы и скачанные)
+        try {
+          const stored = await getAllStored();
+          const rec = stored.find((s) => s.id === tr.id);
+          if (rec) await saveTracks([{ ...rec, ...patch }]);
+        } catch {
+          /* не критично */
+        }
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [ready]);
 
   const makeFolderTrack = useCallback(
     (f: FolderScan["files"][number], abs: string, tags?: TagInfo, old?: Track): Track => {
@@ -140,7 +195,16 @@ export function useTracks() {
         const f = res.path.replace(/[\\/]+$/, "");
         return p === f || p.startsWith(f + "\\") || p.startsWith(f + "/");
       };
-      const merged = [...prev.filter((t) => !(t.path && inFolder(t.path))), ...next];
+      const nextByPath = new Map<string, Track>();
+      for (const t of next) if (t.path) nextByPath.set(t.path, t);
+      const addedSet = new Set(added);
+      // новые треки — наверх, существующие сохраняют свой порядок (с обновлёнными тегами)
+      const merged: Track[] = [
+        ...next.filter((t) => t.path && addedSet.has(t.path)),
+        ...prev
+          .map((t) => (t.path && inFolder(t.path) ? nextByPath.get(t.path) ?? null : t))
+          .filter((t): t is Track => t !== null),
+      ];
       setTracks(merged);
       persistOrder(merged);
       setFolderScanning(false);
@@ -195,7 +259,8 @@ export function useTracks() {
       if (!added.length) return 0;
       await saveTracks(added);
       setTracks((prev) => {
-        const list = [...prev, ...added.map(({ blob: _b, ...meta }) => meta)];
+        // новые файлы — наверх списка
+        const list = [...added.map(({ blob: _b, ...meta }) => meta), ...prev];
         persistOrder(list);
         return list;
       });
@@ -288,7 +353,7 @@ export function useTracks() {
           path: t.path,
           coverHash: t.coverHash || undefined,
         };
-        const list = [...prev, nt];
+        const list = [nt, ...prev];
         persistOrder(list);
         saveTracks([{ ...nt, blob: undefined }]).catch(() => undefined);
         return list;

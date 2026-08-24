@@ -28,33 +28,32 @@ try {
   console.warn("   Пробуем скопировать поверх…");
 }
 
-// 2) Копируем с перезаписью
-// (fs.cpSync падает на путях с кириллицей — EIO, Access denied — поэтому своя рекурсия)
-function copyDir(from, to) {
-  fs.mkdirSync(to, { recursive: true });
-  for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
-    const s = path.join(from, entry.name);
-    const d = path.join(to, entry.name);
-    if (entry.isDirectory()) {
-      copyDir(s, d);
-    } else {
-      fs.copyFileSync(s, d);
-    }
+// 2) Копируем с перезаписью (fs.cpSync → при сбое robocopy на Windows)
+async function copyDir() {
+  fs.mkdirSync(dest, { recursive: true });
+  try {
+    fs.cpSync(src, dest, { recursive: true, force: true, errorOnExist: false });
+    return;
+  } catch (e) {
+    if (process.platform !== "win32") throw e;
+    console.warn("⚠️ fs.cpSync не сработал (" + e.code + ") — пробуем robocopy…");
+    const { spawnSync } = require("child_process");
+    // robocopy: коды 0..7 — успех
+    const r = spawnSync("robocopy", [src, dest, "/E", "/NFL", "/NDL", "/NJH", "/NJS", "/NP"], { stdio: "ignore" });
+    if (r.status === null || r.status > 7) throw new Error("robocopy завершился с кодом " + r.status);
   }
 }
-
-try {
-  copyDir(src, dest);
-  console.log("✅ dist скопирован в electron/dist");
-} catch (e) {
-  console.error("❌ Не удалось скопировать dist в electron/dist.");
-  console.error("   Ошибка: " + e.message);
-  console.error("");
-  console.error("   Что делать, по порядку:");
-  console.error("   1. Закройте Проводник и редакторы — особенно если открыта папка electron\\dist");
-  console.error("      (команда в cmd:  taskkill /f /im explorer.exe && start explorer.exe)");
-  console.error("   2. Временно отключите антивирус или добавьте папку проекта в исключения");
-  console.error("   3. Удалите папку вручную:  cd electron  →  rmdir /s /q dist");
-  console.error("   4. Если не помогло — перенесите проект в путь без кириллицы (C:\\Volna) и повторите");
-  process.exit(1);
-}
+copyDir()
+  .then(() => console.log("✅ dist скопирован в electron/dist"))
+  .catch((e) => {
+    console.error("❌ Не удалось скопировать dist в electron/dist.");
+    console.error("   Ошибка: " + e.message);
+    console.error("");
+    console.error("   Что делать, по порядку:");
+    console.error("   1. Закройте Проводник и редакторы — особенно если открыта папка electron\\dist");
+    console.error("      (команда в cmd:  taskkill /f /im explorer.exe && start explorer.exe)");
+    console.error("   2. Временно отключите антивирус или добавьте папку проекта в исключения");
+    console.error("   3. Удалите папку вручную:  cd electron  →  rmdir /s /q dist");
+    console.error("   4. Если не помогло — перенесите проект в путь без кириллицы (C:\\Volna) и повторите");
+    process.exit(1);
+  });

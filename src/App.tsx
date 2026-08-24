@@ -8,7 +8,7 @@ import {
 } from "react";
 import { engine } from "./engine/AudioEngine";
 import { getStoredBlob, loadMeta, saveMeta } from "./lib/db";
-import { formatTotal, isAudioFile, plural } from "./lib/format";
+import { formatTotal, isAudioFile } from "./lib/format";
 import type { EqState, RepeatMode, SortKey, Toast, Track } from "./types";
 import { useTracks } from "./hooks/useTracks";
 import Sidebar from "./components/Sidebar";
@@ -29,16 +29,11 @@ import StatsModal from "./components/StatsModal";
 import AlbumsGrid from "./components/AlbumsGrid";
 import CreditsModal from "./components/CreditsModal";
 import DownloadModal from "./components/DownloadModal";
+import SettingsModal from "./components/SettingsModal";
 import { useStats } from "./hooks/useStats";
-
-const SORT_OPTIONS: Array<{ key: SortKey; label: string }> = [
-  { key: "order", label: "Как добавлены" },
-  { key: "title", label: "Название" },
-  { key: "artist", label: "Исполнитель" },
-  { key: "album", label: "Альбом" },
-  { key: "duration", label: "Длительность" },
-  { key: "added", label: "Дата добавления" },
-];
+import { countText, useI18n } from "./lib/i18n";
+import { useDownloadQueue } from "./hooks/useDownloadQueue";
+import ConfirmDialog from "./components/ConfirmDialog";
 
 const SPEEDS = [1, 1.25, 1.5, 2, 0.75];
 const DEFAULT_EQ: EqState = {
@@ -48,6 +43,7 @@ const DEFAULT_EQ: EqState = {
 };
 
 export default function App() {
+  const { t, lang } = useI18n();
   const {
     tracks,
     ready,
@@ -95,6 +91,7 @@ export default function App() {
   const [queueIds, setQueueIds] = useState<string[]>([]);
   const [queueOpen, setQueueOpen] = useState(false);
   const [menuTrack, setMenuTrack] = useState<{ track: Track; x: number; y: number } | null>(null);
+  const [confirmDel, setConfirmDel] = useState<Track | null>(null);
   const [recentOpen, setRecentOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"list" | "albums">("list");
@@ -102,6 +99,7 @@ export default function App() {
   const [sortOpen, setSortOpen] = useState(false);
   const [creditsOpen, setCreditsOpen] = useState(false);
   const [dlOpen, setDlOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [rpcOn, setRpcOn] = useState(true);
   const { stats, recordPlay, recordListen } = useStats();
   const playStartRef = useRef<number | null>(null);
@@ -115,9 +113,7 @@ export default function App() {
   const [customCss, setCustomCss] = useState("");
   const [cssEnabled, setCssEnabled] = useState(true);
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [dragOver, setDragOver] = useState(false);
-
-  const urlRef = useRef<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);  const urlRef = useRef<string | null>(null);
   const pendingPlayRef = useRef(false);
   const toastIdRef = useRef(1);
   const lastSaveRef = useRef(0);
@@ -137,26 +133,26 @@ export default function App() {
 
   const albumGroups = useMemo(() => {
     const map = new Map<string, { key: string; name: string; artist: string; cover: Track; tracks: Track[]; totalDur: number }>();
-    const base = favOnly ? tracks.filter((t) => t.fav) : recentOpen ? recentTracks : tracks;
-    for (const t of base) {
-      const key = `${(t.artist || "?").toLowerCase()}||${(t.album || "").toLowerCase()}`;
+    const base = favOnly ? tracks.filter((x) => x.fav) : recentOpen ? recentTracks : tracks;
+    for (const tr of base) {
+      const key = `${(tr.artist || "?").toLowerCase()}||${(tr.album || "").toLowerCase()}`;
       const g = map.get(key);
       if (g) {
-        g.tracks.push(t);
-        g.totalDur += t.duration;
+        g.tracks.push(tr);
+        g.totalDur += tr.duration;
       } else {
         map.set(key, {
           key,
-          name: t.album || (t.artist ? "Без альбома" : "Неизвестный альбом"),
-          artist: t.artist || "Неизвестный исполнитель",
-          cover: t,
-          tracks: [t],
-          totalDur: t.duration,
+          name: tr.album || (tr.artist ? t("noAlbum") : t("unknownAlbum")),
+          artist: tr.artist || t("unknownArtist"),
+          cover: tr,
+          tracks: [tr],
+          totalDur: tr.duration,
         });
       }
     }
-    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, "ru"));
-  }, [tracks, favOnly, recentOpen, recentTracks]);
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, lang));
+  }, [tracks, favOnly, recentOpen, recentTracks, t, lang]);
 
   const albumGroup = albumKey ? albumGroups.find((g) => g.key === albumKey) ?? null : null;
 
@@ -184,11 +180,11 @@ export default function App() {
       sorted.sort((a, b) => {
         switch (sort) {
           case "title":
-            return a.title.localeCompare(b.title, "ru");
+            return a.title.localeCompare(b.title, lang);
           case "artist":
-            return (a.artist || "~").localeCompare(b.artist || "~", "ru") || a.title.localeCompare(b.title, "ru");
+            return (a.artist || "~").localeCompare(b.artist || "~", lang) || a.title.localeCompare(b.title, lang);
           case "album":
-            return (a.album || "~").localeCompare(b.album || "~", "ru") || a.title.localeCompare(b.title, "ru");
+            return (a.album || "~").localeCompare(b.album || "~", lang) || a.title.localeCompare(b.title, lang);
           case "duration":
             return a.duration - b.duration;
           default:
@@ -198,7 +194,7 @@ export default function App() {
       if (sortDir === -1) sorted.reverse();
     }
     return sorted;
-  }, [tracks, activePlaylist, favOnly, recentOpen, recentTracks, search, sort, sortDir]);
+  }, [tracks, activePlaylist, favOnly, recentOpen, recentTracks, search, sort, sortDir, lang]);
 
   const currentTrack = tracks.find((t) => t.id === currentId) ?? null;
   const trackRef = useRef<Track | null>(null);
@@ -213,6 +209,27 @@ export default function App() {
     setTimeout(() => setToasts((p) => p.filter((t) => t.id !== id)), 3200);
   }, []);
 
+  /* ---------- локализованные варианты сортировки ---------- */
+  const SORT_OPTIONS: Array<{ key: SortKey; label: string }> = [
+    { key: "order", label: t("sortAdded") },
+    { key: "title", label: t("sortByName") },
+    { key: "artist", label: t("sortByArtist") },
+    { key: "album", label: t("sortByAlbum") },
+    { key: "duration", label: t("sortByDuration") },
+    { key: "added", label: t("sortByAddedDate") },
+  ];
+
+  /* ---------- очередь скачиваний (живёт здесь, чтобы не прерывалась закрытием окна) ---------- */
+  const getDlDestDir = useCallback(() => folder?.path ?? "", [folder]);
+  const onDlComplete = useCallback(
+    (d: { path: string; title: string; artist?: string; coverHash?: string | null }) => {
+      addExternalTrack(d);
+      pushToast("⬇️", t("toastDownloaded", { title: d.title }));
+    },
+    [addExternalTrack, pushToast, t]
+  );
+  const dlQueue = useDownloadQueue({ getDestDir: getDlDestDir, onComplete: onDlComplete });
+
   /* ---------- управление воспроизведением ---------- */
   const playTrack = useCallback((t: Track) => {
     // если трек стоял в очереди — он сыграл, убираем
@@ -226,22 +243,22 @@ export default function App() {
   }, []);
 
   /** «Играть следующим» — трек встаёт первым в очередь (очередь играет приоритетно) */
-  const playNext = useCallback((t: Track) => {
-    if (stateRef.current.currentId === t.id) {
+  const playNext = useCallback((tr: Track) => {
+    if (stateRef.current.currentId === tr.id) {
       engine.seek(0);
       engine.play();
       return;
     }
-    setQueueIds((prev) => [t.id, ...prev.filter((id) => id !== t.id)]);
-    pushToast("⏭", `Дальше: ${t.title}`);
-  }, [pushToast]);
+    setQueueIds((prev) => [tr.id, ...prev.filter((id) => id !== tr.id)]);
+    pushToast("⏭", t("toastUpNext", { title: tr.title }));
+  }, [pushToast, t]);
 
   const queueTrack = useCallback(
-    (t: Track) => {
-      setQueueIds((prev) => (prev.includes(t.id) ? prev : [...prev, t.id]));
-      pushToast("📃", `В очередь: ${t.title}`);
+    (tr: Track) => {
+      setQueueIds((prev) => (prev.includes(tr.id) ? prev : [...prev, tr.id]));
+      pushToast("📃", t("toastQueued", { title: tr.title }));
     },
-    [pushToast]
+    [pushToast, t]
   );
 
   const next = useCallback(() => {
@@ -332,6 +349,12 @@ export default function App() {
   const changeVolume = useCallback((v: number) => {
     setVolume(v);
     if (v > 0) setMuted(false);
+  }, []);
+
+  /** Громкость относительно текущей (для горячих клавиш) — без устаревшего замыкания */
+  const changeVolumeBy = useCallback((delta: number) => {
+    setVolume((prev) => Math.min(1, Math.max(0, prev + delta)));
+    if (delta > 0) setMuted(false);
   }, []);
 
   const toggleMute = useCallback(() => setMuted((m) => !m), []);
@@ -469,6 +492,11 @@ export default function App() {
   useEffect(() => {
     engine.setVolume(volume);
     saveMeta("volume", volume).catch(() => undefined);
+    try {
+      localStorage.setItem("volna-mini-vol", String(volume));
+    } catch {
+      /* квота */
+    }
   }, [volume]);
   useEffect(() => {
     engine.setMuted(muted);
@@ -570,18 +598,18 @@ export default function App() {
 
   const pickTheme = useCallback(
     (id: string) => {
-      const t = THEMES.find((x) => x.id === id);
-      if (!t) return;
+      const th = THEMES.find((x) => x.id === id);
+      if (!th) return;
       setThemeId(id);
       document.documentElement.style.removeProperty("--accent");
-      setAccent(t.vars["--accent"] ?? "#8b5cf6");
-      pushToast("🎨", `Тема: ${t.name}`);
+      setAccent(th.vars["--accent"] ?? "#8b5cf6");
+      pushToast("🎨", t("toastThemeSet", { name: th.name }));
     },
-    [pushToast]
+    [pushToast, t]
   );
 
   const randomTheme = useCallback(() => {
-    const others = THEMES.filter((t) => t.id !== themeId);
+    const others = THEMES.filter((th) => th.id !== themeId);
     const pick = others[Math.floor(Math.random() * others.length)];
     if (pick) pickTheme(pick.id);
   }, [themeId, pickTheme]);
@@ -593,31 +621,31 @@ export default function App() {
     setWallBlur(0);
     setCustomCss("");
     setCssEnabled(true);
-    pushToast("🧹", "Тема и стили сброшены");
-  }, [pickTheme, pushToast]);
+    pushToast("🧹", t("toastResetDone"));
+  }, [pickTheme, pushToast, t]);
 
   const onWallpaperFile = useCallback(
     (f: File) => {
       if (!f.type.startsWith("image/")) {
-        pushToast("🖼", "Нужен файл картинки (PNG/JPG/GIF/WebP)");
+        pushToast("🖼", t("toastNeedImage"));
         return;
       }
       const r = new FileReader();
       r.onload = () => {
         setWallpaper(r.result as string);
-        pushToast("🖼", f.type === "image/gif" ? "Обои установлены · GIF ожил 🎞" : "Обои установлены");
+        pushToast("🖼", f.type === "image/gif" ? t("toastWallpaperGif") : t("toastWallpaperSet"));
       };
       r.readAsDataURL(f);
     },
-    [pushToast]
+    [pushToast, t]
   );
 
   const onWallpaperUrl = useCallback(
     (u: string) => {
       setWallpaper(u);
-      pushToast("🖼", u.toLowerCase().includes(".gif") ? "Обои по ссылке · GIF ожил 🎞" : "Обои по ссылке установлены");
+      pushToast("🖼", u.toLowerCase().includes(".gif") ? t("toastWallpaperUrlGif") : t("toastWallpaperUrl"));
     },
-    [pushToast]
+    [pushToast, t]
   );
 
   const applyEq = useCallback((n: EqState) => {
@@ -635,11 +663,11 @@ export default function App() {
         saveMeta("timerEnd", null).catch(() => undefined);
         engine.pause();
         setIsPlaying(false);
-        pushToast("⏰", "Таймер сна сработал — музыка остановлена");
+        pushToast("⏰", t("toastSleepFired"));
       }
     }, 1000);
     return () => clearInterval(id);
-  }, [timerEnd, pushToast]);
+  }, [timerEnd, pushToast, t]);
 
   const timerLeft = timerEnd === null ? null : Math.max(0, Math.ceil((timerEnd - Date.now()) / 1000));
 
@@ -648,14 +676,14 @@ export default function App() {
     async (files: File[]) => {
       const audio = files.filter(isAudioFile);
       if (!audio.length) {
-        pushToast("🎵", "В выборе нет аудиофайлов");
+        pushToast("🎵", t("toastNoAudioFiles"));
         return;
       }
       const n = await addFiles(audio);
-      if (n > 0) pushToast("🎵", `Добавлено: ${n} ${plural(n, ["трек", "трека", "треков"])}`);
-      else pushToast("✅", "Всё это уже есть в библиотеке");
+      if (n > 0) pushToast("🎵", t("toastAddedN", { n }));
+      else pushToast("✅", t("toastAlreadyInLibrary"));
     },
-    [addFiles, pushToast]
+    [addFiles, pushToast, t]
   );
 
   const handlePickFolder = useCallback(async () => {
@@ -665,29 +693,37 @@ export default function App() {
         const n = await applyScanLocal(res);
         pushToast(
           "📁",
-          n > 0
-            ? `Папка «${res.name}»: добавлено ${n} ${plural(n, ["трек", "трека", "треков"])}`
-            : `Папка «${res.name}» синхронизирована`
+          n > 0 ? t("toastFolderAdded", { name: res.name, n }) : t("toastFolderSynced", { name: res.name })
         );
         setSidebarOpen(false);
       }
       return;
     }
     folderInputRef.current?.click();
-  }, [applyScanLocal, pushToast]);
+  }, [applyScanLocal, pushToast, t]);
+
+  /* Скачивание по ссылке: нужна единая папка, куда всё сохраняется */
+  const handleOpenDownload = useCallback(() => {
+    if (!folder?.path) {
+      pushToast("📁", t("toastChooseFolderFirst"));
+      setSidebarOpen(true);
+      return;
+    }
+    setDlOpen(true);
+  }, [folder, pushToast, t]);
 
   const handleRescan = useCallback(async () => {
     const n = await rescanFolder();
-    pushToast("🔄", n > 0 ? `Новых треков: ${n}` : "Всё актуально, новых нет");
-  }, [rescanFolder, pushToast]);
+    pushToast("🔄", n > 0 ? t("toastRescanNew", { n }) : t("toastRescanNone"));
+  }, [rescanFolder, pushToast, t]);
 
   const handleRemove = useCallback(
     (id: string) => {
-      const t = tracks.find((x) => x.id === id);
+      const tr = tracks.find((x) => x.id === id);
       removeTrack(id);
       pl.removeTrackFromAll(id);
       setQueueIds((prev) => prev.filter((x) => x !== id));
-      pushToast("🗑", `Удалено: ${t?.title || "трек"}`);
+      pushToast("🗑", t("toastRemoved", { title: tr?.title || "" }));
       if (stateRef.current.currentId === id) {
         const q = stateRef.current.queue;
         const idx = q.findIndex((x) => x.id === id);
@@ -702,7 +738,30 @@ export default function App() {
         }
       }
     },
-    [tracks, removeTrack, pushToast, playTrack]
+    [tracks, removeTrack, pushToast, playTrack, t]
+  );
+
+  /** Удалить файл с диска (после подтверждения в ConfirmDialog) */
+  const handleDeleteDevice = useCallback(
+    async (tr: Track) => {
+      setConfirmDel(null);
+      setMenuTrack(null);
+      if (tr.path && window.volna) {
+        try {
+          const r = await window.volna.deleteFile(tr.path);
+          if (!r.ok) {
+            pushToast("⚠️", t("toastDeleteFailed"));
+            return;
+          }
+        } catch {
+          pushToast("⚠️", t("toastDeleteFailed"));
+          return;
+        }
+      }
+      handleRemove(tr.id);
+      pushToast("🗑", t("toastFileDeleted", { name: tr.title }));
+    },
+    [handleRemove, pushToast, t]
   );
 
   /* ---------- горячие клавиши ---------- */
@@ -711,7 +770,7 @@ export default function App() {
     next,
     prev,
     seekBy,
-    changeVolume,
+    changeVolumeBy,
     toggleMute,
     openFiles: () => fileInputRef.current?.click(),
     focusSearch: () => searchRef.current?.focus(),
@@ -721,7 +780,7 @@ export default function App() {
     next,
     prev,
     seekBy,
-    changeVolume,
+    changeVolumeBy,
     toggleMute,
     openFiles: () => fileInputRef.current?.click(),
     focusSearch: () => searchRef.current?.focus(),
@@ -743,10 +802,10 @@ export default function App() {
         h.seekBy(-5);
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        h.changeVolume(Math.min(1, volume + 0.05));
+        h.changeVolumeBy(0.05);
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
-        h.changeVolume(Math.max(0, volume - 0.05));
+        h.changeVolumeBy(-0.05);
       } else if (e.key === "m" || e.key === "M" || e.key === "ь" || e.key === "Ь") {
         h.toggleMute();
       } else if ((e.ctrlKey || e.metaKey) && (e.key === "o" || e.key === "O" || e.key === "у" || e.key === "У")) {
@@ -775,8 +834,8 @@ export default function App() {
     }
     navigator.mediaSession.metadata = new MediaMetadata({
       title: currentTrack.title,
-      artist: currentTrack.artist || "Неизвестный исполнитель",
-      album: currentTrack.album || "Волна",
+      artist: currentTrack.artist || t("unknownArtist"),
+      album: currentTrack.album || "Volna",
     });
     const h = hotRef.current;
     navigator.mediaSession.setActionHandler("play", () => h.togglePlay());
@@ -786,12 +845,14 @@ export default function App() {
     navigator.mediaSession.setActionHandler("seekto", (d) => {
       if (d.seekTime != null) engine.seek(d.seekTime);
     });
-  }, [currentTrack]);
+  }, [currentTrack, t]);
 
   /* ---------- title вкладки ---------- */
   useEffect(() => {
-    document.title = currentTrack ? `${currentTrack.title} — Волна` : "Волна — музыкальный плеер";
-  }, [currentTrack]);
+    document.title = currentTrack
+      ? t("tabTitlePlaying", { title: currentTrack.title })
+      : t("tabTitleIdle");
+  }, [currentTrack, t]);
 
   /* ---------- защита от открытия файлов браузером ---------- */
   useEffect(() => {
@@ -839,11 +900,11 @@ export default function App() {
   const openMini = useCallback(() => {
     if (window.volna) {
       window.volna.miniOpen();
-      pushToast("🪟", "Мини-плеер открыт");
+      pushToast("🪟", t("toastMiniOpened"));
     } else {
-      pushToast("🪟", "Мини-плеер доступен в Windows-приложении");
+      pushToast("🪟", t("toastMiniUnavailable"));
     }
-  }, [pushToast]);
+  }, [pushToast, t]);
 
   useEffect(() => {
     if (!window.volna) return;
@@ -855,10 +916,12 @@ export default function App() {
         artist: t?.artist ?? "",
         art,
         playing: stateRef.current.isPlaying,
+        time: engine.el.currentTime || 0,
+        duration: engine.el.duration || t?.duration || 0,
       });
     };
     send();
-    const id = setInterval(send, 3000);
+    const id = setInterval(send, 1000);
     return () => clearInterval(id);
   }, []);
 
@@ -868,8 +931,13 @@ export default function App() {
       if (cmd === "toggle") togglePlay();
       else if (cmd === "next") next();
       else if (cmd === "prev") prev();
+      else if (cmd.startsWith("seek:")) engine.seek(Number(cmd.slice(5)));
+      else if (cmd.startsWith("volume:")) {
+        const v = Number(cmd.slice(7));
+        if (Number.isFinite(v)) changeVolume(Math.min(1, Math.max(0, v)));
+      }
     });
-  }, [togglePlay, next, prev]);
+  }, [togglePlay, next, prev, changeVolume]);
 
   /* ---------- Discord Rich Presence ---------- */
   useEffect(() => {
@@ -923,9 +991,9 @@ export default function App() {
 
   const totalDur = tracks.reduce((s, t) => s + t.duration, 0);
   const hour = new Date().getHours();
-  const greet = hour < 5 ? "Доброй ночи" : hour < 12 ? "Доброе утро" : hour < 18 ? "Добрый день" : "Добрый вечер";
+  const greet = hour < 5 ? t("greetNight") : hour < 12 ? t("greetMorning") : hour < 18 ? t("greetAfternoon") : t("greetEvening");
 
-  const currentSortLabel = SORT_OPTIONS.find((s) => s.key === sort)?.label ?? "Сортировка";
+  const currentSortLabel = SORT_OPTIONS.find((s) => s.key === sort)?.label ?? t("sortTitle");
 
   return (
     <div
@@ -983,17 +1051,11 @@ export default function App() {
         onAddFiles={() => fileInputRef.current?.click()}
         onAddFolder={handlePickFolder}
         onOpenThemes={() => setThemesOpen(true)}
-        onOpenEq={() => setModal((m) => ({ ...m, eq: true }))}
-        onOpenTimer={() => setModal((m) => ({ ...m, timer: true }))}
-        onOpenDownload={() => setDlOpen(true)}
+        onOpenDownload={handleOpenDownload}
         onOpenCredits={() => setCreditsOpen(true)}
-        rpcOn={rpcOn}
-        onToggleRpc={() => setRpcOn((r) => !r)}
+        onOpenSettings={() => setSettingsOpen(true)}
         count={tracks.length}
         total={totalDur}
-        timerLeft={timerLeft}
-        accent={accent}
-        onAccent={setAccent}
         folderName={folder?.name ?? null}
         folderScanning={folderScanning}
         onRescan={handleRescan}
@@ -1010,7 +1072,7 @@ export default function App() {
           <button
             onClick={() => setSidebarOpen(true)}
             className="rounded-xl bg-white/[0.06] p-2.5 text-white/60 transition-all hover:bg-white/[0.12] hover:text-white lg:hidden"
-            aria-label="Открыть меню"
+            aria-label={t("settings")}
           >
             <IconMenu className="h-5 w-5" />
           </button>
@@ -1023,31 +1085,31 @@ export default function App() {
                   : activePlaylist
                     ? activePlaylist.name
                     : recentOpen
-                      ? "Недавние"
+                      ? t("recent")
                       : favOnly
-                        ? "Избранное"
-                        : "Библиотека"}
+                        ? t("favorites")
+                        : t("library")}
               </span>
               {albumGroup ? (
                 <button
                   onClick={() => setAlbumKey(null)}
                   className="shrink-0 rounded-lg bg-white/[0.06] px-2 py-1 text-[10px] font-bold text-white/50 transition-colors hover:bg-white/[0.12] hover:text-white"
-                  title="Назад к альбомам"
+                  title={t("backToAlbumsTitle")}
                 >
-                  ← все альбомы
+                  {t("backToAlbums")}
                 </button>
               ) : activePlaylist ? (
                 <button
                   onClick={() => pl.setActiveId(null)}
                   className="shrink-0 rounded-lg bg-white/[0.06] px-2 py-1 text-[10px] font-bold text-white/50 transition-colors hover:bg-white/[0.12] hover:text-white"
-                  title="Выйти из плейлиста"
+                  title={t("exitPlaylistTitle")}
                 >
-                  ✕ выйти
+                  {t("exitPlaylist")}
                 </button>
               ) : null}
               <span className="shrink-0 align-middle text-[11px] font-semibold text-white/35 sm:text-xs">
-                {visibleTracks.length} {plural(visibleTracks.length, ["трек", "трека", "треков"])} ·{" "}
-                {formatTotal(visibleTracks.reduce((s, t) => s + t.duration, 0))}
+                {countText(lang, visibleTracks.length, t("countTracksOne"), t("countTracksFew"), t("countTracksMany"))} ·{" "}
+                {formatTotal(visibleTracks.reduce((s, t) => s + t.duration, 0), lang)}
               </span>
             </h1>
           </div>
@@ -1055,10 +1117,10 @@ export default function App() {
             <button
               onClick={() => setViewMode((v) => (v === "list" ? "albums" : "list"))}
               className="glass hidden items-center gap-2 rounded-full px-3.5 py-2.5 text-sm font-bold text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white sm:flex"
-              title={viewMode === "list" ? "Показать альбомами" : "Показать списком"}
+              title={viewMode === "list" ? t("showAsAlbums") : t("showAsList")}
             >
               {viewMode === "list" ? <IconGrid className="h-4 w-4" /> : <IconList className="h-4 w-4" />}
-              <span className="hidden md:inline">{viewMode === "list" ? "Альбомы" : "Список"}</span>
+              <span className="hidden md:inline">{viewMode === "list" ? t("albums") : t("list")}</span>
             </button>
           )}
 
@@ -1069,7 +1131,7 @@ export default function App() {
               className={`glass flex items-center gap-2 rounded-full px-3.5 py-2.5 text-sm font-bold transition-colors hover:bg-white/[0.08] hover:text-white ${
                 sort !== "order" ? "text-[var(--accent)]" : "text-white/70"
               }`}
-              title="Сортировка"
+              title={t("sortTitle")}
             >
               <IconSort className="h-4 w-4" />
               <span className="hidden max-w-[130px] truncate md:inline">{currentSortLabel}</span>
@@ -1098,7 +1160,7 @@ export default function App() {
                       >
                         <span className={active ? "text-[var(--accent)]" : "text-white/25"}>{o.label}</span>
                         <span className="ml-auto text-[10px] font-bold text-[var(--accent)]">
-                          {active ? (o.key === "order" ? "порядок" : sortDir === 1 ? "↑" : "↓") : ""}
+                          {active ? (o.key === "order" ? t("sortOrderBadge") : sortDir === 1 ? "↑" : "↓") : ""}
                         </span>
                       </button>
                     );
@@ -1113,7 +1175,7 @@ export default function App() {
               ref={searchRef}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Поиск… (Ctrl+K)"
+              placeholder={t("searchPlaceholder")}
               className="glass w-32 rounded-full py-2.5 pl-10 pr-3 text-sm font-medium text-white placeholder-white/30 outline-none transition-all focus:w-40 focus:border-[var(--accent)]/50 focus:bg-white/[0.07] sm:w-48 sm:focus:w-64 lg:w-60 lg:focus:w-80"
             />
           </div>
@@ -1122,7 +1184,7 @@ export default function App() {
             className="glass hidden items-center gap-2 rounded-full px-4 py-2.5 text-sm font-bold text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white lg:flex"
           >
             <IconFolder className="h-4 w-4" />
-            Папка
+            {t("folderBtn")}
           </button>
           <button
             onClick={() => fileInputRef.current?.click()}
@@ -1133,7 +1195,7 @@ export default function App() {
             }}
           >
             <IconPlus className="h-4 w-4" strokeWidth={3} />
-            <span className="hidden sm:inline">Файлы</span>
+            <span className="hidden sm:inline">{t("filesBtn")}</span>
           </button>
         </header>
 
@@ -1163,11 +1225,11 @@ export default function App() {
               onSort={handleSort}
               emptyText={
                 albumGroup
-                  ? "В альбоме нет треков"
+                  ? t("albumNoTracks")
                   : activePlaylist
-                    ? "Плейлист пуст — добавьте треки через меню трека (клик по названию внизу)"
+                    ? t("playlistEmptyHint")
                     : recentOpen
-                      ? "Ещё ничего не слушали — просто включите музыку"
+                      ? t("recentEmptyHint")
                       : undefined
               }
             />
@@ -1203,25 +1265,26 @@ export default function App() {
           if (window.volna && t.path) window.volna.openInExplorer(t.path);
         }}
         onRemoveTrack={(t) => handleRemove(t.id)}
+        onDeleteDevice={(t) => setConfirmDel(t)}
         onOpenMini={openMini}
         queueCount={queueIds.length}
         onOpenQueue={() => setQueueOpen(true)}
         onQueueTrack={() => {
           if (!currentTrack) return;
           setQueueIds((prev) => (prev.includes(currentTrack.id) ? prev : [...prev, currentTrack.id]));
-          pushToast("📃", "Добавлено в очередь");
+          pushToast("📃", t("toastAddedToQueue"));
         }}
         playlists={playlists.map(({ id, name }) => ({ id, name }))}
         onAddToPlaylist={(plId) => {
           if (!currentTrack) return;
           pl.addTrack(plId, currentTrack.id);
-          pushToast("🎶", `Добавлено в «${playlists.find((x) => x.id === plId)?.name ?? ""}»`);
+          pushToast("🎶", t("toastAddedToPl", { name: playlists.find((x) => x.id === plId)?.name ?? "" }));
         }}
         onRemoveFromPlaylist={
           activePlaylist && currentTrack && activePlaylist.trackIds.includes(currentTrack.id)
             ? () => {
                 pl.removeTrack(activePlaylist.id, currentTrack.id);
-                pushToast("🎶", "Убрано из плейлиста");
+                pushToast("🎶", t("toastRemovedFromPl"));
               }
             : null
         }
@@ -1275,15 +1338,29 @@ export default function App() {
             const end = Date.now() + min * 60000;
             setTimerEnd(end);
             saveMeta("timerEnd", end).catch(() => undefined);
-            pushToast("⏰", `Таймер сна: ${min} мин`);
+            pushToast("⏰", t("toastSleepSet", { min }));
             setModal((m) => ({ ...m, timer: false }));
           }}
           onCancel={() => {
             setTimerEnd(null);
             saveMeta("timerEnd", null).catch(() => undefined);
-            pushToast("✅", "Таймер отменён");
+            pushToast("✅", t("toastSleepCancelled"));
           }}
           onClose={() => setModal((m) => ({ ...m, timer: false }))}
+        />
+      )}
+
+      {settingsOpen && (
+        <SettingsModal
+          rpcOn={rpcOn}
+          onToggleRpc={() => setRpcOn((r) => !r)}
+          accent={accent}
+          onAccent={setAccent}
+          onOpenStats={() => setStatsOpen(true)}
+          onOpenThemes={() => setThemesOpen(true)}
+          onOpenEq={() => setModal((m) => ({ ...m, eq: true }))}
+          onOpenCredits={() => setCreditsOpen(true)}
+          onClose={() => setSettingsOpen(false)}
         />
       )}
 
@@ -1291,12 +1368,25 @@ export default function App() {
 
       {dlOpen && (
         <DownloadModal
-          destDir={folder?.path}
+          destDir={folder?.path ?? ""}
+          queue={dlQueue.items}
+          onAddUrl={dlQueue.addUrl}
+          onAddResult={dlQueue.addSearchResult}
+          onCancelActive={dlQueue.cancelActive}
+          onRetry={dlQueue.retry}
+          onRemoveItem={dlQueue.remove}
+          onClearFinished={dlQueue.clearFinished}
           onClose={() => setDlOpen(false)}
-          onDone={(d) => {
-            addExternalTrack(d);
-            pushToast("⬇️", `Скачано: ${d.title}`);
-          }}
+        />
+      )}
+
+      {confirmDel && (
+        <ConfirmDialog
+          title={t("confirmDeleteTitle")}
+          text={t("confirmDeleteText", { name: confirmDel.title })}
+          confirmLabel={t("confirmYes")}
+          onConfirm={() => handleDeleteDevice(confirmDel)}
+          onCancel={() => setConfirmDel(null)}
         />
       )}
 
@@ -1316,14 +1406,14 @@ export default function App() {
           onPlay={playTrack}
           onPlayNext={playNext}
           onQueue={queueTrack}
-          onAddToPlaylist={(t, plId) => {
-            pl.addTrack(plId, t.id);
-            pushToast("🎶", `Добавлено в «${playlists.find((x) => x.id === plId)?.name ?? ""}»`);
+          onAddToPlaylist={(tr, plId) => {
+            pl.addTrack(plId, tr.id);
+            pushToast("🎶", t("toastAddedToPl", { name: playlists.find((x) => x.id === plId)?.name ?? "" }));
           }}
-          onAddToActive={(t) => {
+          onAddToActive={(tr) => {
             if (!activePlaylist) return;
-            pl.addTrack(activePlaylist.id, t.id);
-            pushToast("🎶", `Добавлено в «${activePlaylist.name}»`);
+            pl.addTrack(activePlaylist.id, tr.id);
+            pushToast("🎶", t("toastAddedToPl", { name: activePlaylist.name }));
           }}
           onToggleFav={(t) => toggleFav(t.id)}
           onOpenNow={(t) => {
@@ -1333,10 +1423,14 @@ export default function App() {
           onOpenExplorer={(t) => {
             if (window.volna && t.path) window.volna.openInExplorer(t.path);
           }}
-          onRemoveFromPlaylist={(t) => {
-            if (activePlaylist) pl.removeTrack(activePlaylist.id, t.id);
+          onRemoveFromPlaylist={(tr) => {
+            if (activePlaylist) pl.removeTrack(activePlaylist.id, tr.id);
           }}
-          onRemove={(t) => handleRemove(t.id)}
+          onRemove={(tr) => handleRemove(tr.id)}
+          onDeleteDevice={(tr) => {
+            setMenuTrack(null);
+            setConfirmDel(tr);
+          }}
         />
       )}
 
@@ -1381,8 +1475,8 @@ export default function App() {
         <div className="pointer-events-none fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm">
           <div className="rounded-[2rem] border-2 border-dashed border-[var(--accent)] bg-[#0c1018]/60 px-16 py-12 text-center">
             <div className="text-5xl">🎵</div>
-            <div className="font-display mt-4 text-xl font-bold">Отпустите — добавим в библиотеку</div>
-            <div className="mt-2 text-sm font-medium text-white/50">MP3 · FLAC · WAV · OGG · M4A · AAC · OPUS</div>
+            <div className="font-display mt-4 text-xl font-bold">{t("dropToAdd")}</div>
+            <div className="mt-2 text-sm font-medium text-white/50">{t("formatsLine")}</div>
           </div>
         </div>
       )}

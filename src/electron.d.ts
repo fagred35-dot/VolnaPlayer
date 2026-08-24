@@ -23,6 +23,26 @@ export interface MiniPlayerState {
   artist: string;
   art: string | null;
   playing: boolean;
+  /** текущая позиция и длительность — для прогресс-бара оверлея */
+  time?: number;
+  duration?: number;
+}
+
+/** Результат поиска на YouTube (yt-dlp ytsearch) */
+export interface DlSearchResult {
+  url: string;
+  title: string;
+  channel: string;
+  duration: number;
+  thumb: string | null;
+}
+
+/** Метаданные по ссылке (без скачивания) */
+export interface DlMeta {
+  title: string | null;
+  channel: string;
+  duration: number;
+  thumb: string | null;
 }
 
 declare global {
@@ -33,6 +53,8 @@ declare global {
       scanFolder: (path: string) => Promise<FolderScan | null>;
       getTags: (paths: string[]) => Promise<Record<string, TagInfo | undefined>>;
       openInExplorer: (path: string) => Promise<void>;
+      /** удалить файл с диска (только из разрешённых папок) */
+      deleteFile: (path: string) => Promise<{ ok: boolean; error?: string }>;
       /** мини-плеер */
       miniOpen: () => Promise<void>;
       miniCommand: (cmd: string) => void;
@@ -48,6 +70,12 @@ declare global {
       setRpcEnabled: (on: boolean) => void;
       /** скачивание аудио по ссылке (yt-dlp); destDir — папка, куда сохранить */
       dlStart: (url: string, destDir?: string) => Promise<{ ok: boolean }>;
+      /** поиск треков на YouTube по названию */
+      dlSearch: (query: string) => Promise<DlSearchResult[]>;
+      /** метаданные по ссылке (название/обложка/канал) */
+      dlMeta: (url: string) => Promise<DlMeta | null>;
+      /** отменить активное скачивание */
+      dlCancel: () => Promise<void>;
       onDlProgress: (cb: (p: { percent: number; status: string }) => void) => () => void;
       onDlDone: (
         cb: (d: { path: string; title: string; artist?: string; album?: string; duration?: number; coverHash?: string | null }) => void

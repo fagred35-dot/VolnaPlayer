@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Track } from "../types";
+import { useI18n } from "../lib/i18n";
 import {
   IconDisc,
   IconFolder,
@@ -30,6 +31,7 @@ interface Props {
   onOpenExplorer: (t: Track) => void;
   onRemoveFromPlaylist: (t: Track) => void;
   onRemove: (t: Track) => void;
+  onDeleteDevice: (t: Track) => void;
 }
 
 function Item({
@@ -63,6 +65,7 @@ function Item({
 
 /** Контекстное меню трека (ПКМ). Появляется у курсора, не вылезает за края окна. */
 export default function TrackMenu(p: Props) {
+  const { t } = useI18n();
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ x: p.x, y: p.y });
   const [plsOpen, setPlsOpen] = useState(false);
@@ -86,7 +89,7 @@ export default function TrackMenu(p: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [p.onClose]);
 
-  const t = p.track;
+  const tr = p.track;
 
   return (
     <>
@@ -98,35 +101,35 @@ export default function TrackMenu(p: Props) {
         style={{ left: pos.x, top: pos.y }}
         onClick={(e) => e.stopPropagation()}
       >
-        <Item icon={<IconPlay className="h-4 w-4" />} label="Играть" onClick={() => { p.onPlay(t); p.onClose(); }} />
+        <Item icon={<IconPlay className="h-4 w-4" />} label={t("menuPlay")} onClick={() => { p.onPlay(tr); p.onClose(); }} />
         <Item
           icon={<IconNext className="h-4 w-4" />}
-          label="Играть следующим"
-          onClick={() => { p.onPlayNext(t); p.onClose(); }}
+          label={t("playNextLabel")}
+          onClick={() => { p.onPlayNext(tr); p.onClose(); }}
         />
-        <Item icon={<IconPlus className="h-4 w-4" />} label="В очередь" onClick={() => { p.onQueue(t); p.onClose(); }} />
+        <Item icon={<IconPlus className="h-4 w-4" />} label={t("addToQueue")} onClick={() => { p.onQueue(tr); p.onClose(); }} />
 
         {/* добавить в открытый плейлист */}
         {p.activePlaylist && !p.isInActivePlaylist && (
           <Item
             icon={<IconList className="h-4 w-4 text-[var(--accent)]" />}
-            label={`В «${p.activePlaylist.name}»`}
-            onClick={() => { p.onAddToActive(t); p.onClose(); }}
+            label={t("menuInPlaylistName", { name: p.activePlaylist.name })}
+            onClick={() => { p.onAddToActive(tr); p.onClose(); }}
           />
         )}
 
-        <Item icon={<IconList className="h-4 w-4" />} label="В плейлист" onClick={() => setPlsOpen((o) => !o)}>
+        <Item icon={<IconList className="h-4 w-4" />} label={t("addToPlaylist")} onClick={() => setPlsOpen((o) => !o)}>
           <span className="ml-auto text-[10px] text-white/30">▸</span>
         </Item>
         {plsOpen && (
           <div className="scroll-thin mb-1 max-h-40 overflow-y-auto rounded-lg border border-white/[0.07] bg-black/20 p-1">
             {p.playlists.length === 0 ? (
-              <div className="px-2.5 py-1.5 text-[11px] text-white/30">Создайте плейлист в боковом меню</div>
+              <div className="px-2.5 py-1.5 text-[11px] text-white/30">{t("createPlaylistSidebarHint")}</div>
             ) : (
               p.playlists.map((pl) => (
                 <button
                   key={pl.id}
-                  onClick={() => { p.onAddToPlaylist(t, pl.id); p.onClose(); }}
+                  onClick={() => { p.onAddToPlaylist(tr, pl.id); p.onClose(); }}
                   className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] font-semibold text-white/60 transition-colors hover:bg-white/[0.08] hover:text-white"
                 >
                   <IconList className="h-3.5 w-3.5 shrink-0" />
@@ -140,24 +143,24 @@ export default function TrackMenu(p: Props) {
         {p.isInActivePlaylist && (
           <Item
             icon={<IconXSmall />}
-            label="Убрать из плейлиста"
-            onClick={() => { p.onRemoveFromPlaylist(t); p.onClose(); }}
+            label={t("removeFromPlaylist")}
+            onClick={() => { p.onRemoveFromPlaylist(tr); p.onClose(); }}
           />
         )}
 
         <div className="my-1 h-px bg-white/[0.07]" />
 
         <Item
-          icon={t.fav ? <IconHeartFilled className="h-4 w-4 text-[var(--accent)]" /> : <IconHeart className="h-4 w-4" />}
-          label={t.fav ? "Убрать из избранного" : "В избранное"}
-          onClick={() => { p.onToggleFav(t); p.onClose(); }}
+          icon={tr.fav ? <IconHeartFilled className="h-4 w-4 text-[var(--accent)]" /> : <IconHeart className="h-4 w-4" />}
+          label={tr.fav ? t("favRemove") : t("favAdd")}
+          onClick={() => { p.onToggleFav(tr); p.onClose(); }}
         />
-        <Item icon={<IconDisc className="h-4 w-4" />} label="Сейчас играет" onClick={() => { p.onOpenNow(t); p.onClose(); }} />
-        {window.volna && t.path && (
+        <Item icon={<IconDisc className="h-4 w-4" />} label={t("nowPlaying")} onClick={() => { p.onOpenNow(tr); p.onClose(); }} />
+        {window.volna && tr.path && (
           <Item
             icon={<IconFolder className="h-4 w-4" />}
-            label="Открыть в проводнике"
-            onClick={() => { p.onOpenExplorer(t); p.onClose(); }}
+            label={t("showInExplorer")}
+            onClick={() => { p.onOpenExplorer(tr); p.onClose(); }}
           />
         )}
 
@@ -165,10 +168,18 @@ export default function TrackMenu(p: Props) {
 
         <Item
           icon={<IconTrash className="h-4 w-4" />}
-          label="Удалить из библиотеки"
+          label={t("removeFromLibrary")}
           danger
-          onClick={() => { p.onRemove(t); p.onClose(); }}
+          onClick={() => { p.onRemove(tr); p.onClose(); }}
         />
+        {window.volna && tr.path && (
+          <Item
+            icon={<IconTrash className="h-4 w-4" />}
+            label={t("deleteFromDevice")}
+            danger
+            onClick={() => { p.onDeleteDevice(tr); p.onClose(); }}
+          />
+        )}
       </div>
     </>
   );
