@@ -362,7 +362,7 @@ export default function SettingsModal(p: Props) {
                   },
                 })}
                 <div className="px-4 pt-3 text-center text-[11px] font-medium text-white/25">
-                  Волна · 1.3.1 · MIT
+                  Волна · 1.3.2 · MIT
                 </div>
               </>
             )}

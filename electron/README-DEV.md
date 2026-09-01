@@ -27,7 +27,7 @@ npm install
 npm run build
 ```
 
-Готовый установщик: `electron/release/Волна Setup 1.3.1.exe`
+Готовый установщик: `electron/release/Волна Setup 1.3.2.exe`
 
 Быстрый запуск окна без установки: `cd electron && npm start`, либо из корня: `npm run app` (сайт в `dist/` должен быть собран).
 

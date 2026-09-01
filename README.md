@@ -6,7 +6,7 @@
 
 **Минимальная нагрузка на ПК · Крутой дизайн · Темы и кастомизация · Discord RPC · Оверлей-плеер · Скачивание музыки с поиском по YouTube**
 
-[![Download](https://img.shields.io/badge/Скачать-Volna%20Setup%201.3.1-8b5cf6?style=for-the-badge&logo=windows)](../../releases/latest)
+[![Download](https://img.shields.io/badge/Скачать-Volna%20Setup%201.3.2-8b5cf6?style=for-the-badge&logo=windows)](../../releases/latest)
 
 </div>
 
@@ -67,7 +67,7 @@
 
 ### Способ 1 — готовый exe (для друзей)
 
-Скачай **`Volna-Setup-1.3.1.exe`** из [релизов](../../releases) → запусти → установи → слушай музыку.
+Скачай **`Volna-Setup-1.3.2.exe`** из [релизов](../../releases) → запусти → установи → слушай музыку.
 
 ### Способ 2 — собрать самому
 
@@ -84,7 +84,7 @@ npm install
 npm run build
 ```
 
-Установщик появится в `electron/release/Волна Setup 1.3.1.exe` (на GitHub публикуется как `Volna-Setup-1.3.1.exe`).
+Установщик появится в `electron/release/Волна Setup 1.3.2.exe` (на GitHub публикуется как `Volna-Setup-1.3.2.exe`).
 
 Быстрый запуск без установки: `cd electron && npm start` (или из корня: `npm run app`)
 
