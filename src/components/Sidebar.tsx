@@ -52,8 +52,13 @@ export default function Sidebar(p: Props) {
   const [nameError, setNameError] = useState("");
   /* зажатие логотипа «Волна» ~600мс → список open-source проектов */
   const pressTimer = useRef<number | null>(null);
+  const firedRef = useRef(false);
   const startPress = () => {
-    pressTimer.current = window.setTimeout(() => p.onOpenCredits(), 600);
+    firedRef.current = false;
+    pressTimer.current = window.setTimeout(() => {
+      firedRef.current = true;
+      p.onOpenCredits();
+    }, 600);
   };
   const cancelPress = () => {
     if (pressTimer.current) window.clearTimeout(pressTimer.current);
@@ -89,7 +94,9 @@ export default function Sidebar(p: Props) {
           onPointerDown={startPress}
           onPointerUp={cancelPress}
           onPointerLeave={cancelPress}
-          onClick={p.onOpenCredits}
+          onClick={() => {
+            if (!firedRef.current) p.onOpenCredits();
+          }}
           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-lg text-white shadow-lg transition-transform hover:scale-105 active:scale-95"
           style={{ background: "var(--accent-grad)" }}
           title={t("aboutRowDesc")}

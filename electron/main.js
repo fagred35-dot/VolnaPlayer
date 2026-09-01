@@ -2,8 +2,10 @@ const { app, BrowserWindow, shell, dialog, ipcMain, protocol, net, screen, globa
 const path = require("path");
 const fs = require("fs");
 const fsp = require("fs/promises");
+const crypto = require("crypto");
 const { Readable } = require("stream");
 const { spawn } = require("child_process");
+const { startMcpServer } = require("./mcp-server");
 
 const AUDIO_RE = /\.(mp3|flac|wav|ogg|oga|m4a|aac|opus|webm|wma)$/i;
 const MIME = {
@@ -22,11 +24,34 @@ const MIME = {
 /* Корневые папки, разрешённые для volna://local/ */
 const roots = new Set();
 const coverMap = new Map();
-const COVER_MAX = 600;
+const COVER_MAX = 150;
 
 const DOWNLOADS = () => path.join(app.getPath("userData"), "downloads");
 const YTDLP = () => path.join(app.getPath("userData"), "yt-dlp.exe");
 const FFMPEG = () => path.join(app.getPath("userData"), "ffmpeg.exe");
+
+function safeSend(win, channel, payload) {
+  if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+}
+
+/* Пиннутые версии + sha256. Обновление — сменой записи в манифесте, не «latest»-ссылкой. */
+const RUNTIMES = {
+  ytdlp: {
+    version: "2026.08.19",
+    url: "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp.exe",
+    sha256: "66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a",
+  },
+  node: {
+    version: "v22.23.2",
+    url: "https://nodejs.org/dist/v22.23.2/win-x64/node.exe",
+    sha256: "0d0f5e39f9f3d9587bc19f73eab3c2c9c4903fd02d6dbf9c853dd81b3d95fad4",
+  },
+  ffmpeg: {
+    version: "b6.1.1",
+    url: "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-win32-x64",
+    sha256: "04e1307997530f9cf2fe35cba2ca7e8875ca91da02f89d6c7243df819c94ad00",
+  },
+};
 
 /* ---------- JS-рантайм для YouTube (новый yt-dlp требует node/deno) ---------- */
 // YouTube перестал отдавать данные без JS-рантайма (HTTP 403).
@@ -48,12 +73,13 @@ async function ensureJsRuntime(win) {
         /* занят */
       }
     }
-    win.webContents.send("dl-progress", { percent: 0.25, status: "Скачиваю JS-рантайм (Node)…" });
-    await downloadFile(
-      "https://nodejs.org/dist/latest/win-x64/node.exe",
+    safeSend(win, "dl-progress", { percent: 0.25, status: "Скачиваю JS-рантайм (Node)…" });
+    await downloadWithRetry(
+      RUNTIMES.node.url,
       nodePath,
       win,
-      (pr) => win.webContents.send("dl-progress", { percent: 0.25 + pr * 0.15, status: "Скачиваю JS-рантайм (Node)…" })
+      (pr) => safeSend(win, "dl-progress", { percent: 0.25 + pr * 0.15, status: "Скачиваю JS-рантайм (Node)…" }),
+      RUNTIMES.node.sha256
     );
     return fs.existsSync(nodePath) && fs.statSync(nodePath).size > 1_000_000 ? nodePath : null;
   } catch {
@@ -75,12 +101,13 @@ async function ensureFfmpeg(win) {
     /* нет пакета */
   }
   if (fs.existsSync(FFMPEG())) return FFMPEG();
-  win.webContents.send("dl-progress", { percent: 0.4, status: "Скачиваю FFmpeg…" });
-  await downloadFile(
-    "https://github.com/eugeneware/ffmpeg-static/releases/latest/download/ffmpeg-win32-x64",
+  safeSend(win, "dl-progress", { percent: 0.4, status: "Скачиваю FFmpeg…" });
+  await downloadWithRetry(
+    RUNTIMES.ffmpeg.url,
     FFMPEG(),
     win,
-    (pr) => win.webContents.send("dl-progress", { percent: 0.4 + pr * 0.1, status: "Скачиваю FFmpeg…" })
+    (pr) => safeSend(win, "dl-progress", { percent: 0.4 + pr * 0.1, status: "Скачиваю FFmpeg…" }),
+    RUNTIMES.ffmpeg.sha256
   );
   return FFMPEG();
 }
@@ -175,26 +202,35 @@ function simpleHash(s) {
 }
 
 function isAllowed(p) {
-  const resolved = path.resolve(p);
-  return [...roots].some((r) => resolved === r || resolved.startsWith(r + path.sep));
+  const resolved = path.resolve(p).toLowerCase();
+  return [...roots].some((r) => {
+    const rr = path.resolve(r).toLowerCase();
+    return resolved === rr || resolved.startsWith(rr + path.sep);
+  });
 }
 
 async function walk(dir, base, depth = 0) {
   const out = [];
-  if (depth > 12) return out;
+  let truncated = false;
+  if (depth > 12) return { files: out, truncated };
   let entries;
   try {
     entries = await fsp.readdir(dir, { withFileTypes: true });
   } catch {
-    return out;
+    return { files: out, truncated };
   }
   for (const ent of entries) {
-    if (out.length >= 5000) break;
+    if (out.length >= 5000) {
+      truncated = true;
+      break;
+    }
     if (ent.name.startsWith(".")) continue;
     if (ent.name === "node_modules" || ent.name === "$RECYCLE.BIN" || ent.name === "System Volume Information") continue;
     const full = path.join(dir, ent.name);
     if (ent.isDirectory()) {
-      out.push(...(await walk(full, base, depth + 1)));
+      const sub = await walk(full, base, depth + 1);
+      out.push(...sub.files);
+      if (sub.truncated) truncated = true;
     } else if (AUDIO_RE.test(ent.name)) {
       try {
         const st = await fsp.stat(full);
@@ -204,7 +240,7 @@ async function walk(dir, base, depth = 0) {
       }
     }
   }
-  return out;
+  return { files: out, truncated };
 }
 
 function coverExt(type) {
@@ -253,52 +289,121 @@ async function getTagsFor(filePath) {
   }
 }
 
-/* ---------- скачивание файла (для yt-dlp) ---------- */
-function downloadFile(url, dest, win, onProgress) {
+/* ---------- скачивание файлов (для yt-dlp/node/ffmpeg) ----------
+   Пишет в dest + ".part", проверяет sha256, переименовывает по успеху.
+   Таймаут неактивности 30 c, ретраи — в downloadWithRetry. */
+function downloadFile(url, dest, win, onProgress, expectedSha) {
   return new Promise((resolve, reject) => {
+    const tmp = dest + ".part";
+    let settled = false;
+    let idle = null;
+    const finish = (fn, val) => {
+      if (settled) return;
+      settled = true;
+      if (idle) clearTimeout(idle);
+      fn(val);
+    };
+    const armIdle = () => {
+      if (idle) clearTimeout(idle);
+      idle = setTimeout(() => {
+        try {
+          req.destroy(new Error("download idle timeout"));
+        } catch {}
+      }, 30000);
+    };
     const req = net.request(url);
     req.on("response", (res) => {
       if (res.statusCode >= 400) {
-        reject(new Error("HTTP " + res.statusCode));
+        res.resume();
+        finish(reject, new Error("HTTP " + res.statusCode));
         return;
       }
       const total = Number(res.headers["content-length"] || 0);
       let got = 0;
-      const out = fs.createWriteStream(dest);
+      const hasher = expectedSha ? crypto.createHash("sha256") : null;
+      const out = fs.createWriteStream(tmp);
+      armIdle();
       res.on("data", (c) => {
         got += c.length;
+        if (hasher) hasher.update(c);
         if (total && onProgress) onProgress(got / total);
+        armIdle();
+      });
+      res.on("error", (e) => {
+        try { out.destroy(); } catch {}
+        try { fs.unlinkSync(tmp); } catch {}
+        finish(reject, e);
       });
       res.pipe(out);
-      out.on("finish", () => resolve());
-      out.on("error", reject);
+      out.on("finish", () => {
+        if (expectedSha && hasher.digest("hex") !== expectedSha) {
+          try { fs.unlinkSync(tmp); } catch {}
+          finish(reject, new Error("sha256 mismatch: " + url));
+          return;
+        }
+        try {
+          fs.renameSync(tmp, dest);
+          finish(resolve);
+        } catch (e) {
+          try { fs.unlinkSync(tmp); } catch {}
+          finish(reject, e);
+        }
+      });
+      out.on("error", (e) => {
+        try { fs.unlinkSync(tmp); } catch {}
+        finish(reject, e);
+      });
     });
-    req.on("error", reject);
+    req.on("error", (e) => {
+      try { fs.unlinkSync(tmp); } catch {}
+      finish(reject, e);
+    });
+    armIdle();
     req.end();
   });
 }
 
+async function downloadWithRetry(url, dest, win, onProgress, expectedSha, attempts = 3) {
+  let lastErr = null;
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      await downloadFile(url, dest, win, onProgress, expectedSha);
+      return;
+    } catch (e) {
+      lastErr = e;
+      if (i < attempts) await new Promise((r) => setTimeout(r, i * 2000));
+    }
+  }
+  throw lastErr;
+}
+
+let lastYtDlpUpdate = 0;
+
 async function ensureYtDlp(win) {
   if (!fs.existsSync(YTDLP())) {
-    win.webContents.send("dl-progress", { percent: 0, status: "Скачиваю yt-dlp…" });
-    await downloadFile(
-      "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe",
+    safeSend(win, "dl-progress", { percent: 0, status: "Скачиваю yt-dlp…" });
+    await downloadWithRetry(
+      RUNTIMES.ytdlp.url,
       YTDLP(),
       win,
-      (p) => win.webContents.send("dl-progress", { percent: p * 0.25, status: "Скачиваю yt-dlp…" })
+      (p) => safeSend(win, "dl-progress", { percent: p * 0.25, status: "Скачиваю yt-dlp…" }),
+      RUNTIMES.ytdlp.sha256
     );
   }
-  // Обновляем до последней версии (YouTube часто ломает старые версии — HTTP 403)
-  try {
-    const upd = spawn(YTDLP(), ["-U"], { windowsHide: true });
-    await new Promise((r) => {
-      upd.on("close", r);
-      setTimeout(r, 30000);
-    });
-  } catch {
-    /* не критично */
+  if (Date.now() - lastYtDlpUpdate > 24 * 60 * 60 * 1000) {
+    lastYtDlpUpdate = Date.now();
+    try {
+      const upd = spawn(YTDLP(), ["-U"], { windowsHide: true });
+      await new Promise((r) => {
+        upd.on("close", r);
+        upd.on("error", r);
+        setTimeout(r, 30000);
+      });
+    } catch {
+      /* не критично */
+    }
   }
-  // Проверяем, что бинарник живой; если нет — качаем свежий с GitHub
+  // Проверяем, что бинарник живой; если нет — качаем пиннутую версию с проверкой хэша
   try {
     const ok = await new Promise((res) => {
       const v = spawn(YTDLP(), ["--version"], { windowsHide: true });
@@ -308,13 +413,8 @@ async function ensureYtDlp(win) {
       v.on("close", (c) => res(c === 0 && out.trim().length > 0));
     });
     if (!ok) {
-      win.webContents.send("dl-progress", { percent: 0, status: "Обновляю yt-dlp…" });
-      await downloadFile(
-        "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe",
-        YTDLP(),
-        win,
-        () => {}
-      );
+      safeSend(win, "dl-progress", { percent: 0, status: "Обновляю yt-dlp…" });
+      await downloadWithRetry(RUNTIMES.ytdlp.url, YTDLP(), win, () => {}, RUNTIMES.ytdlp.sha256);
     }
   } catch {
     /* не критично */
@@ -367,6 +467,31 @@ function pickThumb(entry) {
 
 let dlProc = null; // активный процесс скачивания (для кнопки «Отмена»)
 
+/* ---- поиск музыки на YouTube по названию (yt-dlp ytsearch, без скачивания) ---- */
+async function ytSearch(query) {
+  if (typeof query !== "string" || !query.trim()) return [];
+  await ensureYtDlp(getMainWindow());
+  const json = await runYtDlp([
+    "--flat-playlist",
+    "--dump-single-json",
+    "--no-playlist",
+    "ytsearch10:" + query.trim(),
+  ]);
+  const data = JSON.parse(json);
+  const entries = Array.isArray(data) ? data.flatMap((d) => d.entries || []) : data.entries || [];
+  return entries
+    .filter(Boolean)
+    .map((en) => ({
+      url: en.url || en.webpage_url || (en.id ? "https://www.youtube.com/watch?v=" + en.id : null),
+      title: typeof en.title === "string" ? en.title : "",
+      channel: en.uploader || en.channel || "",
+      duration: Number.isFinite(en.duration) ? en.duration : 0,
+      thumb: pickThumb(en),
+    }))
+    .filter((v) => v.url && v.title)
+    .slice(0, 10);
+}
+
 /* ---------- протокол volna:// ---------- */
 protocol.registerSchemesAsPrivileged([
   { scheme: "volna", privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } },
@@ -378,6 +503,7 @@ function registerProtocol() {
 
     if (u.host === "cover") {
       const hash = decodeURIComponent(u.pathname.slice(1));
+      if (!/^[0-9a-f]{1,16}$/i.test(hash)) return new Response(null, { status: 400 });
       const pic = coverMap.get(hash);
       if (pic) {
         return new Response(pic.data, {
@@ -460,6 +586,11 @@ function getMainWindow() {
   return BrowserWindow.getAllWindows().find((w) => w !== miniWin) || BrowserWindow.getAllWindows()[0];
 }
 
+function sendMiniVisibility(visible) {
+  const m = getMainWindow();
+  if (m && !m.isDestroyed()) m.webContents.send("mini-visible", visible);
+}
+
 function createMini() {
   if (miniWin && !miniWin.isDestroyed()) {
     miniWin.show();
@@ -533,18 +664,26 @@ function createMini() {
   miniWin.on("blur", keepOnTop);
 
   const distIndex = path.join(__dirname, "dist", "index.html");
-  miniWin.loadFile(distIndex, { query: { mini: "1" } }).catch(() => {
-    miniWin.loadURL("http://localhost:5173/?mini=1");
-  });
+  if (process.env.VITE_DEV_SERVER_URL) {
+    miniWin.loadURL(process.env.VITE_DEV_SERVER_URL + "/?mini=1").catch(() => {
+      miniWin.loadFile(distIndex, { query: { mini: "1" } });
+    });
+  } else {
+    miniWin.loadFile(distIndex, { query: { mini: "1" } }).catch(() => {
+      miniWin.loadURL("http://localhost:5173/?mini=1");
+    });
+  }
   miniWin.once("ready-to-show", () => {
     miniWin.show();
     keepOnTop();
   });
   miniWin.on("closed", () => {
     miniWin = null;
+    sendMiniVisibility(false);
     const m = getMainWindow();
     if (m && !m.isDestroyed() && !m.isVisible()) m.show();
   });
+  sendMiniVisibility(true);
   return miniWin;
 }
 
@@ -557,14 +696,16 @@ function registerIpc() {
     const p = r.filePaths[0];
     roots.add(p);
     persistRoots();
-    const files = await walk(p, p);
-    return { path: p, name: path.basename(p), files };
+    const scanned = await walk(p, p);
+    return { path: p, name: path.basename(p), files: scanned.files, truncated: scanned.truncated };
   });
 
   ipcMain.handle("scan-folder", async (_e, p) => {
-    if (typeof p !== "string" || !roots.has(path.resolve(p))) return null;
-    const files = await walk(p, p);
-    return { path: p, name: path.basename(p), files };
+    if (typeof p !== "string") return null;
+    const rp = path.resolve(p).toLowerCase();
+    if (![...roots].some((r) => path.resolve(r).toLowerCase() === rp)) return null;
+    const scanned = await walk(p, p);
+    return { path: p, name: path.basename(p), files: scanned.files, truncated: scanned.truncated };
   });
 
   ipcMain.handle("get-tags", async (_e, paths) => {
@@ -612,6 +753,7 @@ function registerIpc() {
   ipcMain.on("mini-command", (_e, cmd) => {
     if (cmd === "open-full") {
       if (miniWin && !miniWin.isDestroyed()) miniWin.close();
+      sendMiniVisibility(false);
       const m = getMainWindow();
       if (m && !m.isDestroyed()) {
         m.show();
@@ -674,22 +816,38 @@ function registerIpc() {
   ipcMain.handle("dl-download", async (e, url, destDir) => {
     const win = BrowserWindow.fromWebContents(e.sender);
     if (!win || typeof url !== "string" || !/^https?:\/\//.test(url)) {
-      win && win.webContents.send("dl-error", { message: "Некорректная ссылка" });
+      safeSend(win, "dl-error", { message: "Некорректная ссылка" });
+      return { ok: false };
+    }
+    if (dlProc) {
+      safeSend(win, "dl-error", { message: "Уже идёт другое скачивание" });
       return { ok: false };
     }
     try {
       await ensureYtDlp(win);
       // Куда скачивать: предпочтительно папка пользователя с музыкой (чтобы трек
       // сразу попадал в библиотеку и синхронизацию), иначе — папка загрузок в userData.
+      // destDir из рендерера принимаем только если он внутри разрешённых корней.
       let target = DOWNLOADS();
       if (typeof destDir === "string" && destDir.trim()) {
         const p = path.resolve(destDir);
-        try {
-          fs.mkdirSync(p, { recursive: true });
-          fs.accessSync(p, fs.constants.W_OK);
-          target = p;
-        } catch {
-          target = DOWNLOADS();
+        const pl = p.toLowerCase();
+        const allowed = [...roots, app.getPath("music"), app.getPath("downloads")].some((r) => {
+          try {
+            const rr = path.resolve(r).toLowerCase();
+            return pl === rr || pl.startsWith(rr + path.sep);
+          } catch {
+            return false;
+          }
+        });
+        if (allowed) {
+          try {
+            fs.mkdirSync(p, { recursive: true });
+            fs.accessSync(p, fs.constants.W_OK);
+            target = p;
+          } catch {
+            target = DOWNLOADS();
+          }
         }
       }
       fs.mkdirSync(target, { recursive: true });
@@ -739,7 +897,7 @@ function registerIpc() {
         if (m) {
           const pct = Number(m[1]) / 100;
           const status = pct >= 1 ? "Обработка аудио…" : "Скачиваю аудио…";
-          win.webContents.send("dl-progress", { percent: 0.5 + pct * 0.5, status });
+          safeSend(win, "dl-progress", { percent: 0.5 + pct * 0.5, status });
         }
         if (buf.length > 20000) buf = buf.slice(-20000);
       });
@@ -776,11 +934,11 @@ function registerIpc() {
       } catch {
         /* теги не критичны */
       }
-      win.webContents.send("dl-done", { path: abs, ...extra });
+      safeSend(win, "dl-done", { path: abs, ...extra });
       return { ok: true };
     } catch (err) {
       dlProc = null;
-      win.webContents.send("dl-error", { message: String((err && err.message) || err) });
+      safeSend(win, "dl-error", { message: String((err && err.message) || err) });
       return { ok: false };
     }
   });
@@ -826,30 +984,30 @@ function registerIpc() {
     }
   });
 
-  /* ---- поиск музыки на YouTube по названию (yt-dlp ytsearch, без скачивания) ---- */
+  /* ---- состояние плеера для MCP-сервера (рендерер шлёт снапшоты) ---- */
+  ipcMain.on("mcp-state", (_e, s) => {
+    if (s && typeof s === "object") mcpState = { ...mcpState, ...s };
+  });
+
+  /* ---- информация о MCP-сервере для кнопки «Подключить MCP» ---- */
+  ipcMain.handle("mcp-info", () => {
+    // в установленном приложении мост лежит рядом с app.asar (resources/),
+    // в dev-режиме — рядом с main.js
+    const bridgePath = app.isPackaged
+      ? path.join(path.dirname(process.execPath), "resources", "mcp-bridge.js")
+      : path.join(__dirname, "mcp-bridge.js");
+    return {
+      enabled: process.env.VOLNA_MCP_DISABLED !== "1",
+      port: mcpPort,
+      bridgePath,
+      config: JSON.stringify({ mcpServers: { volna: { command: "node", args: [bridgePath] } } }, null, 2),
+    };
+  });
+
+  /* ---- поиск музыки на YouTube по названию (используется UI и MCP) ---- */
   ipcMain.handle("dl-search", async (_e, query) => {
-    if (typeof query !== "string" || !query.trim()) return [];
     try {
-      await ensureYtDlp(getMainWindow());
-      const json = await runYtDlp([
-        "--flat-playlist",
-        "--dump-single-json",
-        "--no-playlist",
-        "ytsearch10:" + query.trim(),
-      ]);
-      const data = JSON.parse(json);
-      const entries = Array.isArray(data) ? data.flatMap((d) => d.entries || []) : data.entries || [];
-      return entries
-        .filter(Boolean)
-        .map((en) => ({
-          url: en.url || en.webpage_url || (en.id ? "https://www.youtube.com/watch?v=" + en.id : null),
-          title: typeof en.title === "string" ? en.title : "",
-          channel: en.uploader || en.channel || "",
-          duration: Number.isFinite(en.duration) ? en.duration : 0,
-          thumb: pickThumb(en),
-        }))
-        .filter((v) => v.url && v.title)
-        .slice(0, 10);
+      return await ytSearch(query);
     } catch (err) {
       throw new Error(String((err && err.message) || err));
     }
@@ -890,6 +1048,39 @@ function loadWindowPrefs() {
   }
 }
 let windowPrefs = { transparent: false, material: "none" };
+
+/* ---------- MCP: снапшот состояния плеера + запуск сервера ---------- */
+let mcpState = null;
+let mcpPort = null; // фактический порт — показываем в настройках («Подключить MCP»)
+
+function startMcp() {
+  if (process.env.VOLNA_MCP_DISABLED === "1") return;
+  const basePort = Number(process.env.VOLNA_MCP_PORT) || 57624;
+  startMcpServer({
+    port: basePort,
+    getState: () => mcpState,
+    // команды MCP идут в рендерер по тому же каналу, что и команды оверлея
+    sendCommand: (cmd) => safeSend(getMainWindow(), "renderer-command", cmd),
+    youtubeSearch: ytSearch,
+    log: (msg) => console.log("[Волна]", msg),
+  })
+    .then(({ port }) => {
+      mcpPort = port;
+      // файл-указатель для stdio-моста и других агентов: здесь фактический порт
+      try {
+        fs.writeFileSync(
+          path.join(app.getPath("userData"), "mcp.json"),
+          JSON.stringify({ port, pid: process.pid, ts: Date.now() })
+        );
+      } catch {
+        /* не критично */
+      }
+    })
+    .catch((e) => {
+      mcpPort = null;
+      console.log("[Волна] MCP-сервер не запущен:", String((e && e.message) || e));
+    });
+}
 
 function createWindow() {
   // Определяем монитор под курсором и подгоняем размер под его рабочую область:
@@ -980,12 +1171,14 @@ function createWindow() {
 
   const distIndex = path.join(__dirname, "dist", "index.html");
   const devUrl = process.env.VITE_DEV_SERVER_URL || "http://localhost:5173";
-  win.loadFile(distIndex).catch(() => win.loadURL(devUrl));
+  if (process.env.VITE_DEV_SERVER_URL) win.loadURL(devUrl).catch(() => win.loadFile(distIndex));
+  else win.loadFile(distIndex).catch(() => win.loadURL(devUrl));
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
   });
+  win.webContents.on("will-navigate", (e) => e.preventDefault());
 }
 
 app.whenReady().then(() => {
@@ -995,6 +1188,7 @@ app.whenReady().then(() => {
   roots.add(DOWNLOADS());
   registerProtocol();
   registerIpc();
+  startMcp();
   rpcInit();
   createWindow();
   // глобальный хоткей режима перемещения оверлея (как в Discord)

@@ -79,13 +79,14 @@ export default function TrackMenu(p: Props) {
   }, [p.x, p.y]);
 
   /* закрытие по Esc */
+  const { onClose } = p;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") p.onClose();
+      if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [p.onClose]);
+  }, [onClose]);
 
   const tr = p.track;
 

@@ -35,18 +35,19 @@ export function useTracks() {
   const [folderScanning, setFolderScanning] = useState(false);
   const tracksRef = useRef<Track[]>([]);
   tracksRef.current = tracks;
+  const favsRef = useRef<Set<string>>(new Set());
 
   /* ---------- загрузка из IndexedDB + сохранённой папки ---------- */
   useEffect(() => {
-    let alive = true;
     (async () => {
       try {
-        const [stored, order, savedFolder] = await Promise.all([
+        const [stored, order, savedFolder, favs] = await Promise.all([
           getAllStored(),
           loadMeta<string[]>("order"),
           loadMeta<{ path: string; name: string }>("folderPath"),
+          loadMeta<string[]>("favs"),
         ]);
-        if (!alive) return;
+        favsRef.current = new Set(Array.isArray(favs) ? favs : []);
         const list: Track[] = stored.map(({ blob: _b, ...meta }) => meta);
         if (order && order.length) {
           const pos = new Map(order.map((id, i) => [id, i]));
@@ -61,16 +62,16 @@ export function useTracks() {
           // Electron: авто-синхронизация папки при старте
           if (window.volna) {
             const res = await window.volna.scanFolder(savedFolder.path);
-            if (alive && res) {
-              const n = await applyScanLocal(res);
-              if (alive && n > 0) console.log(`[Волна] Папка синхронизирована: +${n} новых треков`);
+            if (res) {
+              const r = await applyScanLocal(res);
+              if (r.added > 0) console.log(`[Волна] Папка синхронизирована: +${r.added} новых треков`);
             }
           }
         }
       } catch (e) {
         console.error(e);
       } finally {
-        if (alive) setReady(true);
+        setReady(true);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -88,6 +89,8 @@ export function useTracks() {
     if (!ready) return;
     let alive = true;
     (async () => {
+      const storedAll = await getAllStored().catch(() => [] as StoredTrack[]);
+      const storedById = new Map(storedAll.map((s) => [s.id, s]));
       const need = tracksRef.current.filter(
         (t) => !t.duration || (t.path && (!t.artist || !t.coverHash))
       );
@@ -121,8 +124,7 @@ export function useTracks() {
         setTracks((prev) => prev.map((x) => (x.id === tr.id ? { ...x, ...patch } : x)));
         // сохраняем в IndexedDB, если трек там хранится (файлы и скачанные)
         try {
-          const stored = await getAllStored();
-          const rec = stored.find((s) => s.id === tr.id);
+          const rec = storedById.get(tr.id);
           if (rec) await saveTracks([{ ...rec, ...patch }]);
         } catch {
           /* не критично */
@@ -144,7 +146,7 @@ export function useTracks() {
         album: tags?.album ?? old?.album,
         duration: tags?.duration || old?.duration || 0,
         addedAt: old?.addedAt ?? Date.now(),
-        fav: old?.fav ?? false,
+        fav: old?.fav ?? favsRef.current.has(hashId(abs)),
         fileName: f.rel,
         fileSize: f.size,
         fileMtime: f.mtimeMs,
@@ -157,7 +159,7 @@ export function useTracks() {
 
   /** Применяет результат сканирования папки к библиотеке */
   const applyScanLocal = useCallback(
-    async (res: FolderScan): Promise<number> => {
+    async (res: FolderScan): Promise<{ added: number; truncated: boolean }> => {
       setFolderScanning(true);
       setFolder({ path: res.path, name: res.name });
       saveMeta("folderPath", { path: res.path, name: res.name }).catch(() => undefined);
@@ -208,7 +210,7 @@ export function useTracks() {
       setTracks(merged);
       persistOrder(merged);
       setFolderScanning(false);
-      return added.length;
+      return { added: added.length, truncated: !!res.truncated };
     },
     [makeFolderTrack, persistOrder]
   );
@@ -219,10 +221,10 @@ export function useTracks() {
     return window.volna.pickFolder();
   }, []);
 
-  const rescanFolder = useCallback(async (): Promise<number> => {
-    if (!window.volna || !folder) return 0;
+  const rescanFolder = useCallback(async (): Promise<{ added: number; truncated: boolean }> => {
+    if (!window.volna || !folder) return { added: 0, truncated: false };
     const res = await window.volna.scanFolder(folder.path);
-    if (!res) return 0;
+    if (!res) return { added: 0, truncated: false };
     return applyScanLocal(res);
   }, [folder, applyScanLocal]);
 
@@ -234,28 +236,43 @@ export function useTracks() {
   const addFiles = useCallback(
     async (files: File[]): Promise<number> => {
       const existing = new Set(tracks.map((t) => `${t.fileName}|${t.fileSize}`));
-      const fresh = files.filter((f) => !existing.has(`${f.name}|${f.size}`));
+      const existingExact = new Set(
+        tracks.filter((t) => t.fileLastModified).map((t) => `${t.fileName}|${t.fileLastModified}`)
+      );
+      const fresh = files.filter((f) => {
+        if (existing.has(`${f.name}|${f.size}`)) return false;
+        if (existingExact.has(`${f.name}|${f.lastModified}`)) return false;
+        return true;
+      });
       if (!fresh.length) return 0;
-      const added: StoredTrack[] = [];
-      for (const f of fresh) {
-        try {
-          const duration = await probeDuration(f);
-          const { title, artist } = parseFileName(f.name);
-          added.push({
-            id: uid(),
-            title,
-            artist,
-            duration,
-            addedAt: Date.now(),
-            fav: false,
-            fileName: f.name,
-            fileSize: f.size,
-            blob: f,
-          });
-        } catch {
-          /* пропускаем битые файлы */
+      const results: (StoredTrack | null)[] = new Array(fresh.length).fill(null);
+      let idx = 0;
+      const workers = Array.from({ length: Math.min(6, fresh.length) }, async () => {
+        while (idx < fresh.length) {
+          const i = idx++;
+          const f = fresh[i];
+          try {
+            const duration = await probeDuration(f);
+            const { title, artist } = parseFileName(f.name);
+            results[i] = {
+              id: uid(),
+              title,
+              artist,
+              duration,
+              addedAt: Date.now(),
+              fav: false,
+              fileName: f.name,
+              fileSize: f.size,
+              fileLastModified: f.lastModified,
+              blob: f,
+            };
+          } catch {
+            /* пропускаем битые файлы */
+          }
         }
-      }
+      });
+      await Promise.all(workers);
+      const added = results.filter((t): t is StoredTrack => t !== null);
       if (!added.length) return 0;
       await saveTracks(added);
       setTracks((prev) => {
@@ -282,17 +299,23 @@ export function useTracks() {
   );
 
   const toggleFav = useCallback((id: string) => {
-    setTracks((prev) => {
-      const list = prev.map((t) => (t.id === id ? { ...t, fav: !t.fav } : t));
-      const changed = list.find((t) => t.id === id);
-      if (changed) {
-        getAllStored().then((stored) => {
-          const rec = stored.find((s) => s.id === id);
-          if (rec) saveTracks([{ ...changed, blob: rec.blob }]).catch(() => undefined);
-        });
-      }
-      return list;
-    });
+    const cur = tracksRef.current.find((t) => t.id === id);
+    const nextFav = cur ? !cur.fav : true;
+    setTracks((prev) => prev.map((t) => (t.id === id ? { ...t, fav: !t.fav } : t)));
+    if (!cur) return;
+    if (cur.path) {
+      const set = new Set(favsRef.current);
+      if (nextFav) set.add(id);
+      else set.delete(id);
+      favsRef.current = set;
+      saveMeta("favs", [...set]).catch(() => undefined);
+    }
+    getAllStored()
+      .then((stored) => {
+        const rec = stored.find((s) => s.id === id);
+        if (rec) saveTracks([{ ...cur, fav: nextFav, blob: rec.blob }]).catch(() => undefined);
+      })
+      .catch(() => undefined);
   }, []);
 
   const updateTrack = useCallback((id: string, patch: Partial<Track>) => {

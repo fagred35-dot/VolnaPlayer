@@ -29,6 +29,7 @@
 - 🌍 **Два языка интерфейса** — английский и русский, переключается в настройках и запоминается
 - ⏱ **Таймер сна** — пресеты или **любое время руками**
 - 🎧 **Discord Rich Presence** — статус «Слушает» с обратным отсчётом
+- 🤖 **MCP-сервер** — любой ИИ-агент (Claude Desktop, Cursor, Cline…) может управлять плеером: искать треки, включать музыку, качать с YouTube
 - ⬇️ **Скачивание музыки** — по ссылке или **поиском по YouTube прямо из плеера**, с очередью загрузок
 - 🖱 **Показать в папке** — открывает проводник с выделенным треком; **удаление с устройства** с подтверждением
 - 💿 Альбомный вид, сортировки, ПКМ-меню трека, горячие клавиши, медиа-клавиши
@@ -54,11 +55,11 @@
 
 | Библиотека | Сейчас играет |
 |---|---|
-| ![Библиотека](screenshots/library.png) | ![Сейчас играет](screenshots/now-playing.png) |
+| ![Библиотека](screenshots/main.png) | ![Сейчас играет](screenshots/now-playing.png) |
 
-| GIF-обои | Оверлей-плеер |
+| Обои | Оверлей-плеер |
 |---|---|
-| ![GIF-обои](screenshots/wallpaper-gif.gif) | ![Оверлей-плеер](screenshots/mini-player.png) |
+| ![Обои](screenshots/wallpaper.png) | ![Оверлей-плеер](screenshots/mini-player.png) |
 
 ---
 
@@ -85,7 +86,9 @@ npm run build
 
 Установщик появится в `electron/release/Волна Setup 1.3.1.exe` (на GitHub публикуется как `Volna-Setup-1.3.1.exe`).
 
-Быстрый запуск без установки: `cd electron && npm start`
+Быстрый запуск без установки: `cd electron && npm start` (или из корня: `npm run app`)
+
+Проверки качества: `npm run lint` · `npm test` · `npx tsc --noEmit`
 
 ### 📦 Портативная версия (без установки)
 
@@ -127,6 +130,49 @@ const DISCORD_ASSET = process.env.VOLNA_DISCORD_ASSET || "имя_ассета";
 
 ---
 
+## 🤖 MCP — управление ИИ-агентом
+
+Внутри плеера работает **MCP-сервер** (Model Context Protocol): любой локальный ИИ-агент может управлять Волной — включать треки, листать библиотеку, менять громкость, ставить плейлисты, искать и **скачивать музыку с YouTube**. Сервер слушает только `127.0.0.1`, наружу ничего не торчит.
+
+### Подключение (stdio — Claude Desktop, Cursor, Cline…)
+
+В конфиг MCP-серверов (`claude_desktop_config.json` / `mcp.json` вашего клиента) добавьте:
+
+```json
+{
+  "mcpServers": {
+    "volna": {
+      "command": "node",
+      "args": ["C:\\Users\\<имя>\\AppData\\Local\\Programs\\Волна\\resources\\mcp-bridge.js"]
+    }
+  }
+}
+```
+
+- путь к `mcp-bridge.js` — из установленного приложения (папка `resources`), в dev-режиме — `electron/mcp-bridge.js`
+- нужен [Node.js](https://nodejs.org) в системе; порт мост находит сам в `%APPDATA%\Волна\mcp.json` (плеер должен быть запущен)
+- **Ctrl/переменная окружения**: порт можно задать явно — `VOLNA_MCP_PORT=57624`
+
+### Подключение (HTTP)
+
+Клиенты, которые умеют Streamable HTTP напрямую, подключаются к `http://127.0.0.1:57624/mcp` без моста.
+
+### Инструменты (22)
+
+| Группа | Инструменты |
+|---|---|
+| Состояние | `get_player_state`, `list_tracks`, `get_queue`, `list_playlists` |
+| Воспроизведение | `play_track`, `toggle_play`, `pause`, `resume`, `next_track`, `previous_track`, `seek` |
+| Настройки | `set_volume`, `set_muted`, `set_shuffle`, `set_repeat`, `set_speed`, `set_sleep_timer` |
+| Библиотека | `queue_track`, `toggle_favorite`, `play_playlist` |
+| Скачивание | `search_youtube`, `download_track` |
+
+Примеры запросов агенту: *«включи Bones от Imagine Dragons»*, *«что сейчас играет?»*, *«скачай свежий альбом Radiohead с YouTube»*, *«выключи музыку через 30 минут»*.
+
+Отключить сервер: переменная окружения `VOLNA_MCP_DISABLED=1`.
+
+---
+
 ## 🎨 Темы и кастомизация
 
 - **10 готовых тем** — перекрашивают весь интерфейс через CSS-переменные
@@ -153,8 +199,12 @@ const DISCORD_ASSET = process.env.VOLNA_DISCORD_ASSET || "имя_ассета";
 │   ├── lib/              # i18n (EN/RU), обложки (iTunes/Deezer), БД, форматирование
 │   ├── theme/            # темы и CSS-переменные
 │   └── mini/             # оверлей-плеер (отдельное окно)
+├── tests/                # Vitest: форматирование, обложки, очередь загрузок, MCP-инструменты
 ├── electron/             # обёртка Windows (.exe)
 │   ├── main.js           # main-процесс: папки, теги, RPC, yt-dlp, оверлей
+│   ├── mcp-server.js     # MCP-сервер (Streamable HTTP, localhost) — управление ИИ-агентом
+│   ├── mcp-tools.js      # определения MCP-инструментов (22) + поиск трека
+│   ├── mcp-bridge.js     # stdio-мост для Claude Desktop / Cursor / Cline
 │   ├── make-icon.js      # генерация мультиразмерного icon.ico из PNG
 │   ├── prepare.js        # копирование dist перед упаковкой
 │   ├── preload.js        # мост между UI и main-процессом
@@ -181,6 +231,16 @@ const DISCORD_ASSET = process.env.VOLNA_DISCORD_ASSET || "имя_ассета";
 | [iTunes Search API](https://performance-partners.apple.com/search-api) | обложки альбомов |
 | [Deezer API](https://developers.deezer.com) | запасной источник обложек |
 | [Manrope / Unbounded](https://fonts.google.com) | шрифты |
+
+---
+
+## 🔭 Известные отложенные задачи
+
+- **Electron 33** (Chromium ~130, окт 2024) — ветка вне окна поддержки; при обновлении проверить прозрачность, Acrylic/Mica и оверлей-плеер
+- **music-metadata v7** — advisory file-type (ASF) в prod-зависимостях electron-пакета; v11 требует ESM-миграции main.js
+- **Виртуализация плейлиста** — при 1000+ треков список стоит мемоизировать с виртуализацией (сейчас только memo на строках)
+
+Подробности для разработчиков: [`electron/README-DEV.md`](electron/README-DEV.md)
 
 ---
 

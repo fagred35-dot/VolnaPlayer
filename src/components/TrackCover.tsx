@@ -17,13 +17,19 @@ interface Props {
  */
 export default function TrackCover({ track, className = "", iconClassName = "" }: Props) {
   const [art, setArt] = useState<string | null>(null);
+  const artRef = useRef<string | null>(null);
   const [inView, setInView] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const backupRef = useRef<string | null>(null);
   const failedRef = useRef(false);
 
+  const applyArt = (u: string | null) => {
+    artRef.current = u;
+    setArt(u);
+  };
+
   useEffect(() => {
-    setArt(null);
+    applyArt(null);
     failedRef.current = false;
   }, [track.id, track.coverHash]);
 
@@ -56,8 +62,8 @@ export default function TrackCover({ track, className = "", iconClassName = "" }
     const loadInternet = () => {
       getArt(track).then((u) => {
         if (!alive || !u) return;
-        if (failedRef.current || art === null) {
-          setArt(u);
+        if (failedRef.current || artRef.current === null) {
+          applyArt(u);
         } else {
           backupRef.current = u;
         }
@@ -65,13 +71,13 @@ export default function TrackCover({ track, className = "", iconClassName = "" }
     };
 
     if (track.coverHash && window.volna) {
-      setArt(`volna://cover/${track.coverHash}`);
+      applyArt(`volna://cover/${track.coverHash}`);
       loadInternet();
       return () => {
         alive = false;
       };
     }
-    setArt(null);
+    applyArt(null);
     loadInternet();
     return () => {
       alive = false;
@@ -82,11 +88,11 @@ export default function TrackCover({ track, className = "", iconClassName = "" }
   const handleImgError = () => {
     failedRef.current = true;
     const b = backupRef.current;
-    if (b && b !== art) {
+    if (b && b !== artRef.current) {
       backupRef.current = null;
-      setArt(b);
+      applyArt(b);
     } else {
-      setArt(null);
+      applyArt(null);
     }
   };
 

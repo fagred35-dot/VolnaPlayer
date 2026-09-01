@@ -19,6 +19,10 @@ contextBridge.exposeInMainWorld("volna", {
   sendMiniState: (state) => ipcRenderer.send("mini-state", state),
   /** изменить размер окна оверлея (из пресетов вида) */
   miniResize: (w, h) => ipcRenderer.send("mini-resize", w, h),
+  /** снапшот состояния плеера для MCP-сервера (управление ИИ-агентом) */
+  sendMcpState: (state) => ipcRenderer.send("mcp-state", state),
+  /** данные для кнопки «Подключить MCP»: порт, путь моста, готовый конфиг */
+  getMcpInfo: () => ipcRenderer.invoke("mcp-info"),
   /** глобальный хоткей Ctrl+Alt+M — режим перемещения оверлея */
   onMiniMoveMode: (cb) => {
     const l = () => cb();
@@ -34,6 +38,12 @@ contextBridge.exposeInMainWorld("volna", {
     const l = (_e, s) => cb(s);
     ipcRenderer.on("mini-state", l);
     return () => ipcRenderer.removeListener("mini-state", l);
+  },
+  /** открыто ли окно мини-плеера — чтобы не слать mini-state в пустоту */
+  onMiniVisible: (cb) => {
+    const l = (_e, v) => cb(v);
+    ipcRenderer.on("mini-visible", l);
+    return () => ipcRenderer.removeListener("mini-visible", l);
   },
   /** ---- кастомный titlebar ---- */
   windowControls: (action) => ipcRenderer.send("window-control", action),

@@ -1,8 +1,30 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useI18n } from "../lib/i18n";
 import AccentPicker from "./AccentPicker";
 import { IconChart, IconGlobe, IconMusic, IconPalette, IconSliders, IconX } from "./icons";
 import type { Lang } from "../lib/i18n";
+import type { McpInfo } from "../electron.d";
+
+/** Копирование в буфер с fallback для окружений без Clipboard API */
+function copyToClipboard(text: string, onDone: () => void) {
+  const fallback = () => {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+      onDone();
+    } catch {
+      /* не смогли — не смогли */
+    }
+  };
+  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(onDone).catch(fallback);
+  else fallback();
+}
 
 interface Props {
   rpcOn: boolean;
@@ -28,6 +50,29 @@ type Tab = "general" | "appearance" | "integrations" | "about";
 export default function SettingsModal(p: Props) {
   const { t, lang, setLang } = useI18n();
   const [tab, setTab] = useState<Tab>("general");
+  const [mcpOpen, setMcpOpen] = useState(false);
+  const [mcpInfo, setMcpInfo] = useState<McpInfo | null>(null);
+  const [copiedTag, setCopiedTag] = useState<string | null>(null);
+
+  /* пока панель MCP открыта — раз в 2 с перечитываем порт (сервер мог стартовать) */
+  useEffect(() => {
+    if (!mcpOpen || !window.volna) return;
+    let alive = true;
+    const pull = () => window.volna!.getMcpInfo().then((info) => alive && setMcpInfo(info)).catch(() => undefined);
+    pull();
+    const id = setInterval(pull, 2000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [mcpOpen]);
+
+  const copyText = (text: string, tag: string) => {
+    copyToClipboard(text, () => {
+      setCopiedTag(tag);
+      setTimeout(() => setCopiedTag((c) => (c === tag ? null : c)), 1600);
+    });
+  };
 
   const row =
     "flex w-full items-center gap-3 rounded-2xl px-4 py-3.5 text-left transition-all hover:bg-white/[0.06] active:scale-[0.99]";
@@ -188,28 +233,105 @@ export default function SettingsModal(p: Props) {
               </>
             )}
 
-            {tab === "integrations" &&
-              renderRow({
-                icon: (
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#5865F2]/15 text-[#5865F2]">
-                    <span className="text-lg leading-none">🎮</span>
-                  </span>
-                ),
-                title: t("rpcRowTitle"),
-                desc: t("rpcRowDesc"),
-                onClick: p.onToggleRpc,
-                right: (
-                  <span
-                    className={`relative shrink-0 rounded-full transition-colors ${p.rpcOn ? "bg-[#5865F2]" : "bg-white/15"}`}
-                    style={{ width: 42, height: 24 }}
-                  >
+            {tab === "integrations" && (
+              <>
+                {renderRow({
+                  icon: (
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#5865F2]/15 text-[#5865F2]">
+                      <span className="text-lg leading-none">🎮</span>
+                    </span>
+                  ),
+                  title: t("rpcRowTitle"),
+                  desc: t("rpcRowDesc"),
+                  onClick: p.onToggleRpc,
+                  right: (
                     <span
-                      className="absolute top-[3px] h-[18px] w-[18px] rounded-full bg-white shadow transition-all"
-                      style={{ left: p.rpcOn ? 21 : 3 }}
-                    />
-                  </span>
-                ),
-              })}
+                      className={`relative shrink-0 rounded-full transition-colors ${p.rpcOn ? "bg-[#5865F2]" : "bg-white/15"}`}
+                      style={{ width: 42, height: 24 }}
+                    >
+                      <span
+                        className="absolute top-[3px] h-[18px] w-[18px] rounded-full bg-white shadow transition-all"
+                        style={{ left: p.rpcOn ? 21 : 3 }}
+                      />
+                    </span>
+                  ),
+                })}
+                {renderRow({
+                  icon: (
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--accent)]/15 text-[var(--accent)]">
+                      <span className="text-lg leading-none">🤖</span>
+                    </span>
+                  ),
+                  title: t("mcpRowTitle"),
+                  desc: t("mcpRowDesc"),
+                  onClick: () => setMcpOpen((o) => !o),
+                  right: <span className="shrink-0 text-white/25">{mcpOpen ? "▾" : "▸"}</span>,
+                })}
+                {mcpOpen && (
+                  <div className="mx-2 mb-1 space-y-3 rounded-2xl bg-black/25 p-4">
+                    {!window.volna ? (
+                      <div className="text-[12px] font-medium text-white/45">{t("mcpUnavailable")}</div>
+                    ) : (
+                      <>
+                        {/* статус сервера */}
+                        <div className="flex items-center gap-2 text-[12px] font-semibold">
+                          <span
+                            className={`h-2 w-2 shrink-0 rounded-full ${
+                              !mcpInfo ? "bg-amber-400" : !mcpInfo.enabled || !mcpInfo.port ? "bg-white/25" : "bg-emerald-400"
+                            }`}
+                          />
+                          <span className="text-white/70">
+                            {!mcpInfo ? t("mcpStarting") : !mcpInfo.enabled ? t("mcpOff") : mcpInfo.port ? t("mcpRunning") : t("mcpStarting")}
+                          </span>
+                          {mcpInfo?.port ? (
+                            <span className="ml-auto font-mono text-[11px] text-white/40">:{mcpInfo.port}</span>
+                          ) : null}
+                        </div>
+
+                        {/* endpoint */}
+                        {mcpInfo?.port ? (
+                          <div>
+                            <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-white/35">{t("mcpEndpoint")}</div>
+                            <div className="flex items-center gap-2">
+                              <code dir="ltr" className="min-w-0 flex-1 truncate rounded-lg bg-black/30 px-3 py-2 font-mono text-[11px] text-white/75">
+                                http://127.0.0.1:{mcpInfo.port}/mcp
+                              </code>
+                              <button
+                                onClick={() => copyText(`http://127.0.0.1:${mcpInfo.port}/mcp`, "endpoint")}
+                                className="shrink-0 rounded-lg bg-white/[0.08] px-3 py-2 text-[11px] font-bold text-white/70 transition-colors hover:bg-white/[0.16] hover:text-white"
+                              >
+                                {copiedTag === "endpoint" ? t("mcpCopied") : t("mcpCopy")}
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {/* готовый конфиг для ИИ-клиента */}
+                        {mcpInfo ? (
+                          <div>
+                            <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-white/35">{t("mcpConfigTitle")}</div>
+                            <pre
+                              dir="ltr"
+                              className="scroll-thin max-h-40 overflow-auto rounded-lg bg-black/30 p-3 font-mono text-[11px] leading-relaxed text-white/75"
+                            >
+                              {mcpInfo.config}
+                            </pre>
+                            <button
+                              onClick={() => copyText(mcpInfo.config, "config")}
+                              className="mt-2 w-full rounded-lg bg-[var(--accent)] px-3 py-2 text-[12px] font-bold text-white transition-all hover:brightness-110 active:scale-[0.99]"
+                              style={{ boxShadow: "0 4px 14px -6px var(--accent)" }}
+                            >
+                              {copiedTag === "config" ? t("mcpCopied") : t("mcpCopy")}
+                            </button>
+                            <p className="mt-2 text-[11px] font-medium leading-snug text-white/35">{t("mcpHint")}</p>
+                          </div>
+                        ) : null}
+                      </>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
 
             {tab === "about" && (
               <>

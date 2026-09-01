@@ -53,6 +53,8 @@ export function useDownloadQueue({ getDestDir, onComplete }: Opts) {
   const idSeq = useRef(1);
   const runningIdRef = useRef<number | null>(null);
   const cancelFlagRef = useRef<number | null>(null);
+  const optsRef = useRef({ getDestDir, onComplete });
+  optsRef.current = { getDestDir, onComplete };
 
   const patch = useCallback((id: number, p: Partial<DlItem>) => {
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...p } : i)));
@@ -87,7 +89,7 @@ export function useDownloadQueue({ getDestDir, onComplete }: Opts) {
             : i
         )
       );
-      onComplete({ path: d.path, title: d.title, artist, coverHash: d.coverHash ?? null });
+      optsRef.current.onComplete({ path: d.path, title: d.title, artist, coverHash: d.coverHash ?? null });
       // страховка: если теги не прочитались сразу (файл был занят антивирусом и т.п.),
       // перечитываем их через пару секунд и обновляем трек в библиотеке
       if (window.volna?.getTags && (!artist || !d.coverHash)) {
@@ -97,7 +99,7 @@ export function useDownloadQueue({ getDestDir, onComplete }: Opts) {
             .then((tags) => {
               const tg = tags?.[d.path];
               if (tg && (tg.artist || tg.coverHash)) {
-                onComplete({
+                optsRef.current.onComplete({
                   path: d.path,
                   title: d.title,
                   artist: tg.artist || artist,
@@ -122,7 +124,7 @@ export function useDownloadQueue({ getDestDir, onComplete }: Opts) {
       offD();
       offE();
     };
-  }, [patch, onComplete]);
+  }, [patch]);
 
   /* ---------- последовательный конвейер: качаем строго по одному ---------- */
   useEffect(() => {
@@ -135,15 +137,14 @@ export function useDownloadQueue({ getDestDir, onComplete }: Opts) {
         runningIdRef.current = next.id;
         patch(next.id, { state: "downloading", percent: 0, status: "", error: undefined });
         try {
-          await window.volna.dlStart(next.url, next.destDir || getDestDir() || undefined);
+          await window.volna.dlStart(next.url, next.destDir || optsRef.current.getDestDir() || undefined);
           // событие dl-done/dl-error уже обработано и сняло runningIdRef.
           // Если по какой-то причине этого не случилось — снимаем сами, чтобы не зависнуть.
-          if (alive && runningIdRef.current === next.id) {
+          if (runningIdRef.current === next.id) {
             runningIdRef.current = null;
             patch(next.id, { state: "error", error: "No result" });
           }
         } catch (err) {
-          if (!alive) return;
           if (runningIdRef.current === next.id) {
             runningIdRef.current = null;
             patch(next.id, { state: "error", error: String((err as Error)?.message || err) });
@@ -155,7 +156,7 @@ export function useDownloadQueue({ getDestDir, onComplete }: Opts) {
       alive = false;
     };
     // конвейер перезапускается при любом изменении списка — берёт следующий «waiting»
-  }, [items, patch, getDestDir]);
+  }, [items, patch]);
 
   /* ---------- публичные действия ---------- */
 

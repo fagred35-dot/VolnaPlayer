@@ -8,6 +8,8 @@ export interface Track {
   fav: boolean;
   fileName: string;
   fileSize: number;
+  /** timestamp последнего изменения (File.lastModified) — для точной дедупликации */
+  fileLastModified?: number;
   /** абсолютный путь к файлу (только для треков из выбранной папки, Electron) */
   path?: string;
   /** корень выбранной папки */

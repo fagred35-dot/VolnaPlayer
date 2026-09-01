@@ -18,7 +18,7 @@ export function formatTotal(sec: number, lang: "en" | "ru" = "en"): string {
 export function parseFileName(name: string): { title: string; artist: string } {
   const base = name.replace(/\.[^.]+$/, "");
   const cleaned = base
-    .replace(/\s*[\[\(（].*?[\]\)）]\s*/g, " ")
+    .replace(/\s*[[（(].*?[\])）]\s*/g, " ")
     .replace(/\s+/g, " ")
     .trim();
   const m = cleaned.match(/^(.+?)\s*[-–—~]\s*(.+)$/);

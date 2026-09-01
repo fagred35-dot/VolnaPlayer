@@ -1,3 +1,5 @@
+import type { RepeatMode } from "./types";
+
 export interface FolderFile {
   rel: string;
   size: number;
@@ -8,6 +10,8 @@ export interface FolderScan {
   path: string;
   name: string;
   files: FolderFile[];
+  /** true, если найдено больше 5000 файлов и обход остановлен досрочно */
+  truncated?: boolean;
 }
 
 export interface TagInfo {
@@ -45,6 +49,57 @@ export interface DlMeta {
   thumb: string | null;
 }
 
+/** Снапшот состояния плеера для MCP (рендерер → main → ИИ-агент) */
+export interface McpSnapshot {
+  ts: number;
+  current: {
+    id: string;
+    title: string;
+    artist: string;
+    album: string;
+    duration: number;
+    fav: boolean;
+    cover: string | null;
+    path: string | null;
+  } | null;
+  playing: boolean;
+  time: number;
+  duration: number;
+  volume: number;
+  muted: boolean;
+  repeat: RepeatMode;
+  shuffle: boolean;
+  speed: number;
+  eq: { enabled: boolean; preset: string };
+  librarySize: number;
+  tracks: Array<{ id: string; title: string; artist: string; album: string; duration: number; fav: boolean }>;
+  queue: string[];
+  playlists: Array<{ id: string; name: string; trackIds: string[] }>;
+  downloads: Array<{ title: string; state: string; percent: number }>;
+  timerEnd: number | null;
+  folder: string | null;
+}
+
+/** Команда MCP-сервера рендереру (main → renderer-command) */
+export interface McpCommand {
+  __mcp?: number;
+  type: string;
+  id?: string;
+  value?: unknown;
+  seconds?: number;
+  minutes?: number;
+  url?: string;
+  title?: string;
+}
+
+/** Данные о MCP-сервере для настроек (кнопка «Подключить MCP») */
+export interface McpInfo {
+  enabled: boolean;
+  port: number | null;
+  bridgePath: string;
+  config: string;
+}
+
 declare global {
   interface Window {
     volna?: {
@@ -63,8 +118,14 @@ declare global {
       miniResize: (w: number, h: number) => void;
       /** глобальный хоткей Ctrl+Alt+M — режим перемещения оверлея */
       onMiniMoveMode: (cb: () => void) => () => void;
-      onRendererCommand: (cb: (cmd: string) => void) => () => void;
+      onRendererCommand: (cb: (cmd: string | McpCommand) => void) => () => void;
+      /** снапшот состояния плеера для MCP-сервера (управление ИИ-агентом) */
+      sendMcpState: (state: McpSnapshot | Pick<McpSnapshot, "ts" | "playing" | "time">) => void;
+      /** данные для кнопки «Подключить MCP»: порт, путь моста, готовый конфиг */
+      getMcpInfo: () => Promise<McpInfo>;
       onMiniState: (cb: (state: MiniPlayerState) => void) => () => void;
+      /** открыто ли окно мини-плеера */
+      onMiniVisible: (cb: (visible: boolean) => void) => () => void;
       /** кастомный titlebar */
       windowControls: (action: "minimize" | "maximize" | "close") => void;
       onWindowState: (cb: (maximized: boolean) => void) => () => void;

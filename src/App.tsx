@@ -34,6 +34,7 @@ import { useStats } from "./hooks/useStats";
 import { countText, useI18n } from "./lib/i18n";
 import { useDownloadQueue } from "./hooks/useDownloadQueue";
 import ConfirmDialog from "./components/ConfirmDialog";
+import type { McpCommand, McpSnapshot } from "./electron.d";
 
 const SPEEDS = [1, 1.25, 1.5, 2, 0.75];
 const DEFAULT_EQ: EqState = {
@@ -85,6 +86,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [trackGains, setTrackGains] = useState<Record<string, number>>({});
   const pl = usePlaylists();
+  const { removeTrackFromAll } = pl;
   const playlists = pl.playlists;
   const activePlaylistId = pl.activeId;
   const activePlaylist = playlists.find((x) => x.id === activePlaylistId) ?? null;
@@ -121,6 +123,9 @@ export default function App() {
   const pendingPlayRef = useRef(false);
   const toastIdRef = useRef(1);
   const lastSaveRef = useRef(0);
+  const lastTimeUiRef = useRef(0);
+  const timeBufRef = useRef(0);
+  const miniVisibleRef = useRef(false);
   const dragDepthRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -366,8 +371,12 @@ export default function App() {
   /* ---------- привязка движка ---------- */
   useEffect(() => {
     engine.onTime = (t) => {
-      setTime(t);
+      timeBufRef.current = t;
       const n = performance.now();
+      if (n - lastTimeUiRef.current >= 250) {
+        lastTimeUiRef.current = n;
+        setTime(t);
+      }
       if (n - lastSaveRef.current > 10000) {
         lastSaveRef.current = n;
         const id = stateRef.current.currentId;
@@ -382,8 +391,9 @@ export default function App() {
       if (prevId && playStartRef.current) recordListen(prevId, now - playStartRef.current);
       const id = stateRef.current.currentId;
       playStartRef.current = id ? now : null;
+      const isNew = id != null && statIdRef.current !== id;
       statIdRef.current = id ?? null;
-      if (id) recordPlay(id);
+      if (id && isNew) recordPlay(id);
     };
     const onPause = () => {
       setIsPlaying(false);
@@ -391,7 +401,10 @@ export default function App() {
       const st = playStartRef.current;
       playStartRef.current = null;
       if (id && st) recordListen(id, Date.now() - st);
-      if (id) saveMeta("position", { id, time: engine.el.currentTime }).catch(() => undefined);
+      if (id) {
+        saveMeta("position", { id, time: engine.el.currentTime }).catch(() => undefined);
+        setTime(engine.el.currentTime);
+      }
     };
     const onMeta = () => {
       const d = engine.el.duration || 0;
@@ -489,7 +502,6 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTrack?.id]);
 
   /* ---------- применение настроек к движку ---------- */
@@ -502,6 +514,15 @@ export default function App() {
       /* квота */
     }
   }, [volume]);
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== "volna-mini-vol" || e.newValue === null) return;
+      const v = Number(e.newValue);
+      if (Number.isFinite(v)) changeVolume(Math.min(1, Math.max(0, v)));
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [changeVolume]);
   useEffect(() => {
     engine.setMuted(muted);
     saveMeta("muted", muted).catch(() => undefined);
@@ -733,11 +754,12 @@ export default function App() {
     if (window.volna) {
       const res = await window.volna.pickFolder();
       if (res) {
-        const n = await applyScanLocal(res);
+        const r = await applyScanLocal(res);
         pushToast(
           "📁",
-          n > 0 ? t("toastFolderAdded", { name: res.name, n }) : t("toastFolderSynced", { name: res.name })
+          r.added > 0 ? t("toastFolderAdded", { name: res.name, n: r.added }) : t("toastFolderSynced", { name: res.name })
         );
+        if (r.truncated) pushToast("⚠️", t("toastScanTruncated"));
         setSidebarOpen(false);
       }
       return;
@@ -756,15 +778,16 @@ export default function App() {
   }, [folder, pushToast, t]);
 
   const handleRescan = useCallback(async () => {
-    const n = await rescanFolder();
-    pushToast("🔄", n > 0 ? t("toastRescanNew", { n }) : t("toastRescanNone"));
+    const r = await rescanFolder();
+    pushToast("🔄", r.added > 0 ? t("toastRescanNew", { n: r.added }) : t("toastRescanNone"));
+    if (r.truncated) pushToast("⚠️", t("toastScanTruncated"));
   }, [rescanFolder, pushToast, t]);
 
   const handleRemove = useCallback(
     (id: string) => {
       const tr = tracks.find((x) => x.id === id);
       removeTrack(id);
-      pl.removeTrackFromAll(id);
+      removeTrackFromAll(id);
       setQueueIds((prev) => prev.filter((x) => x !== id));
       pushToast("🗑", t("toastRemoved", { title: tr?.title || "" }));
       if (stateRef.current.currentId === id) {
@@ -781,7 +804,7 @@ export default function App() {
         }
       }
     },
-    [tracks, removeTrack, pushToast, playTrack, t]
+    [tracks, removeTrack, removeTrackFromAll, pushToast, playTrack, t]
   );
 
   /** Удалить файл с диска (после подтверждения в ConfirmDialog) */
@@ -865,7 +888,6 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /* ---------- MediaSession ---------- */
@@ -939,6 +961,212 @@ export default function App() {
     setAlbumKey(null);
   }, [pl]);
 
+  /* ---------- MCP: снапшот состояния + команды ИИ-агента ---------- */
+  const buildMcpSnapshot = useCallback((): McpSnapshot => {
+    const s = stateRef.current;
+    const cur = s.tracks.find((x) => x.id === s.currentId) ?? null;
+    return {
+      ts: Date.now(),
+      current: cur
+        ? {
+            id: cur.id,
+            title: cur.title,
+            artist: cur.artist,
+            album: cur.album ?? "",
+            duration: cur.duration,
+            fav: cur.fav,
+            cover: cur.coverHash ? `volna://cover/${cur.coverHash}` : null,
+            path: cur.path ?? null,
+          }
+        : null,
+      playing: s.isPlaying,
+      time: engine.el.currentTime || 0,
+      duration: engine.el.duration || cur?.duration || 0,
+      volume,
+      muted,
+      repeat,
+      shuffle,
+      speed,
+      eq: { enabled: eq.enabled, preset: eq.preset },
+      librarySize: s.tracks.length,
+      tracks: s.tracks.map((x) => ({ id: x.id, title: x.title, artist: x.artist, album: x.album ?? "", duration: x.duration, fav: x.fav })),
+      queue: s.queueIds,
+      playlists: playlists.map((p) => ({ id: p.id, name: p.name, trackIds: p.trackIds })),
+      downloads: dlQueue.items.map((d) => ({ title: d.title, state: d.state, percent: Math.round(d.percent * 100) })),
+      timerEnd,
+      folder: folder?.path ?? null,
+    };
+  }, [volume, muted, repeat, shuffle, speed, eq, playlists, dlQueue.items, timerEnd, folder]);
+
+  type McpApi = {
+    togglePlay: () => void;
+    next: () => void;
+    prev: () => void;
+    playTrack: (t: Track) => void;
+    playNext: (t: Track) => void;
+    queueTrack: (t: Track) => void;
+    changeVolume: (v: number) => void;
+    setMuted: (v: boolean) => void;
+    setShuffle: (v: boolean) => void;
+    setRepeat: (v: RepeatMode) => void;
+    setSpeed: (v: number) => void;
+    setTimerEnd: (v: number | null) => void;
+    toggleFav: (id: string) => void;
+    tracks: Track[];
+    playlists: Array<{ id: string; name: string; trackIds: string[] }>;
+    setActiveId: (id: string | null) => void;
+    addDownload: (url: string) => boolean;
+    pushToast: (icon: string, text: string) => void;
+    t: ReturnType<typeof useI18n>["t"];
+    stateRef: { current: { currentId: string | null; isPlaying: boolean } };
+    snapshot: () => McpSnapshot;
+  };
+  const mcpRef = useRef<McpApi>({} as McpApi);
+  mcpRef.current = {
+    togglePlay,
+    next,
+    prev,
+    playTrack,
+    playNext,
+    queueTrack,
+    changeVolume,
+    setMuted,
+    setShuffle,
+    setRepeat,
+    setSpeed,
+    setTimerEnd,
+    toggleFav,
+    tracks,
+    playlists,
+    setActiveId: pl.setActiveId,
+    addDownload: dlQueue.addUrl,
+    pushToast,
+    t,
+    stateRef: stateRef as unknown as { current: { currentId: string | null; isPlaying: boolean } },
+    snapshot: buildMcpSnapshot,
+  };
+
+  /** после MCP-команды шлём свежий снапшот — агент сразу видит результат */
+  const sendMcpSoon = useCallback(() => {
+    setTimeout(() => {
+      if (window.volna) window.volna.sendMcpState(mcpRef.current.snapshot());
+    }, 120);
+  }, []);
+
+  const handleMcpCommand = useCallback(
+    (cmd: McpCommand) => {
+      const m = mcpRef.current;
+      const byId = (id?: string) => (id ? m.tracks.find((x) => x.id === id) ?? null : null);
+      switch (cmd.type) {
+        case "toggle":
+          m.togglePlay();
+          break;
+        case "pause":
+          engine.pause();
+          break;
+        case "resume":
+          if (!m.stateRef.current.currentId) m.togglePlay();
+          else if (!m.stateRef.current.isPlaying) engine.play();
+          break;
+        case "next":
+          m.next();
+          break;
+        case "prev":
+          m.prev();
+          break;
+        case "play": {
+          const tr = byId(cmd.id);
+          if (tr) m.playTrack(tr);
+          break;
+        }
+        case "queue": {
+          const tr = byId(cmd.id);
+          if (tr) m.queueTrack(tr);
+          break;
+        }
+        case "play_next": {
+          const tr = byId(cmd.id);
+          if (tr) m.playNext(tr);
+          break;
+        }
+        case "fav": {
+          const tr = byId(cmd.id);
+          if (tr) m.toggleFav(tr.id);
+          break;
+        }
+        case "volume": {
+          const v = Number(cmd.value);
+          if (Number.isFinite(v)) m.changeVolume(Math.min(1, Math.max(0, v)));
+          break;
+        }
+        case "muted":
+          m.setMuted(!!cmd.value);
+          break;
+        case "seek": {
+          const sec = Number(cmd.seconds);
+          if (Number.isFinite(sec)) engine.seek(sec);
+          break;
+        }
+        case "shuffle":
+          m.setShuffle(!!cmd.value);
+          break;
+        case "repeat":
+          if (cmd.value === "off" || cmd.value === "all" || cmd.value === "one") m.setRepeat(cmd.value);
+          break;
+        case "speed": {
+          const r = Number(cmd.value);
+          if (Number.isFinite(r)) m.setSpeed(Math.min(2, Math.max(0.5, r)));
+          break;
+        }
+        case "timer": {
+          const min = Math.max(0, Math.floor(Number(cmd.minutes) || 0));
+          if (min > 0) {
+            const end = Date.now() + min * 60000;
+            m.setTimerEnd(end);
+            saveMeta("timerEnd", end).catch(() => undefined);
+            m.pushToast("⏰", m.t("toastSleepSet", { min }));
+          } else {
+            m.setTimerEnd(null);
+            saveMeta("timerEnd", null).catch(() => undefined);
+            m.pushToast("✅", m.t("toastSleepCancelled"));
+          }
+          break;
+        }
+        case "play_playlist": {
+          const plDef = m.playlists.find((p) => p.id === cmd.id);
+          if (plDef && plDef.trackIds.length) {
+            m.setActiveId(plDef.id);
+            const tr = m.tracks.find((x) => x.id === plDef.trackIds[0]);
+            if (tr) m.playTrack(tr);
+          }
+          break;
+        }
+        case "download": {
+          const url = typeof cmd.url === "string" ? cmd.url : "";
+          if (/^https?:\/\//.test(url) && m.addDownload(url)) m.pushToast("⬇️", cmd.title || url);
+          break;
+        }
+      }
+      sendMcpSoon();
+    },
+    [sendMcpSoon]
+  );
+
+  useEffect(() => {
+    if (!window.volna) return;
+    window.volna.sendMcpState(buildMcpSnapshot());
+  }, [buildMcpSnapshot, currentId, isPlaying]);
+
+  /* лёгкий тик позиции — только пока играет музыка, чтобы MCP видел время */
+  useEffect(() => {
+    if (!window.volna) return;
+    const id = setInterval(() => {
+      if (!stateRef.current.isPlaying) return;
+      window.volna!.sendMcpState({ ts: Date.now(), playing: true, time: engine.el.currentTime || 0 });
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
+
   /* ---------- мини-плеер (Electron) ---------- */
   const openMini = useCallback(() => {
     if (window.volna) {
@@ -952,6 +1180,7 @@ export default function App() {
   useEffect(() => {
     if (!window.volna) return;
     const send = () => {
+      if (!miniVisibleRef.current) return;
       const t = trackRef.current;
       const art = t?.coverHash && window.volna ? `volna://cover/${t.coverHash}` : null;
       window.volna!.sendMiniState({
@@ -970,7 +1199,31 @@ export default function App() {
 
   useEffect(() => {
     if (!window.volna) return;
+    return window.volna.onMiniVisible((v) => {
+      miniVisibleRef.current = v;
+      if (v) {
+        const t = trackRef.current;
+        const art = t?.coverHash && window.volna ? `volna://cover/${t.coverHash}` : null;
+        window.volna!.sendMiniState({
+          title: t?.title ?? "",
+          artist: t?.artist ?? "",
+          art,
+          playing: stateRef.current.isPlaying,
+          time: engine.el.currentTime || 0,
+          duration: engine.el.duration || t?.duration || 0,
+        });
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!window.volna) return;
     return window.volna.onRendererCommand((cmd) => {
+      // MCP-агент присылает объекты-команды, оверлей — строки
+      if (cmd && typeof cmd === "object") {
+        handleMcpCommand(cmd as McpCommand);
+        return;
+      }
       if (cmd === "toggle") togglePlay();
       else if (cmd === "next") next();
       else if (cmd === "prev") prev();
@@ -980,7 +1233,7 @@ export default function App() {
         if (Number.isFinite(v)) changeVolume(Math.min(1, Math.max(0, v)));
       }
     });
-  }, [togglePlay, next, prev, changeVolume]);
+  }, [togglePlay, next, prev, changeVolume, handleMcpCommand]);
 
   /* ---------- прозрачность и кнопки окна ---------- */
   useEffect(() => {
@@ -1314,10 +1567,11 @@ export default function App() {
               onFav={toggleFav}
               onRemove={handleRemove}
               onReorder={(from, to) => {
+                const list = albumGroup ? albumGroup.tracks : visibleTracks;
                 if (activePlaylist) {
-                  pl.moveTrack(activePlaylist.id, visibleTracks[from].id, visibleTracks[to].id);
+                  pl.moveTrack(activePlaylist.id, list[from].id, list[to].id);
                 } else {
-                  reorder(from, to, visibleTracks);
+                  reorder(from, to, list);
                 }
               }}
               onTrackMenu={(e, t) => openTrackMenu(e, t)}

@@ -5,7 +5,8 @@ import type { Track } from "../types";
  * 1. Встроенная обложка из тегов (Electron: volna://cover/<hash>)
  * 2. iTunes Search API, затем Deezer — по исполнителю и названию
  * Кэш в localStorage, одинаковые запросы объединяются.
- * Неудачные запросы НЕ запоминаются — при следующем показе строки повторим попытку.
+ * Пустые ответы запоминаются в рамках сессии (seenQueries) — после
+ * перезапуска попытка повторяется.
  */
 
 const CACHE_KEY = "volna-art-v1";
@@ -46,6 +47,7 @@ export function getArt(track: Track): Promise<string | null> {
   const q = `${track.artist} ${track.title}`.trim();
   if (!q) return Promise.resolve(null);
   const qk = q.toLowerCase();
+  if (seenQueries.has(qk)) return Promise.resolve(null);
 
   const existing = pending.get(qk);
   if (existing) {
@@ -59,10 +61,11 @@ export function getArt(track: Track): Promise<string | null> {
     fetchArt(track).then((u) => {
       pending.delete(qk);
       if (u) {
-        seenQueries.add(qk);
         cache.set(track.id, u);
         if (track.artist) cache.set(sharedKey(track), u);
         persistCache();
+      } else {
+        seenQueries.add(qk);
       }
       callbacks.forEach((cb) => cb(u));
     });

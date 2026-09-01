@@ -26,6 +26,8 @@
     "files": [
       "main.js",
       "preload.js",
+      "mcp-server.js",
+      "mcp-tools.js",
       "prepare.js",
       "make-icon.js",
       "node_modules/**/*",
@@ -33,6 +35,9 @@
     ],
     "asarUnpack": [
       "node_modules/ffmpeg-static/**"
+    ],
+    "extraResources": [
+      { "from": "mcp-bridge.js", "to": "mcp-bridge.js" }
     ],
     "directories": {
       "output": "release"

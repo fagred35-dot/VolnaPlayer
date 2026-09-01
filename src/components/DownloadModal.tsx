@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { DlSearchResult } from "../electron.d";
 import { useI18n } from "../lib/i18n";
 import { formatTime } from "../lib/format";
@@ -238,36 +238,32 @@ export default function DownloadModal(p: Props) {
     );
   };
 
-  const queueSection = useMemo(
-    () => (
-      <div className="mt-4 min-h-0 flex-1 flex flex-col">
-        <div className="mb-1.5 flex shrink-0 items-center justify-between px-0.5">
-          <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-white/35">
-            {waitingCount > 0 ? t("queueCountLabel", { n: waitingCount }) : t("queueTitle")}
-          </span>
-          {finishedCount > 0 && (
-            <button
-              onClick={p.onClearFinished}
-              className="rounded-md bg-white/[0.06] px-2 py-1 text-[10px] font-bold text-white/45 transition-colors hover:bg-white/[0.12] hover:text-white"
-            >
-              {t("clearQueue")}
-            </button>
-          )}
-        </div>
-        <div className="scroll-thin max-h-[228px] min-h-[64px] space-y-1.5 overflow-y-auto pr-1">
-          {p.queue.length === 0 ? (
-            <div className="flex h-full min-h-[64px] flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-white/10 py-4 text-center">
-              <span className="text-xl opacity-40">⬇️</span>
-              <span className="text-xs font-semibold text-white/30">{t("statusWaiting")}</span>
-            </div>
-          ) : (
-            p.queue.map(renderItem)
-          )}
-        </div>
+  const queueSection = (
+    <div className="mt-4 min-h-0 flex-1 flex flex-col">
+      <div className="mb-1.5 flex shrink-0 items-center justify-between px-0.5">
+        <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-white/35">
+          {waitingCount > 0 ? t("queueCountLabel", { n: waitingCount }) : t("queueTitle")}
+        </span>
+        {finishedCount > 0 && (
+          <button
+            onClick={p.onClearFinished}
+            className="rounded-md bg-white/[0.06] px-2 py-1 text-[10px] font-bold text-white/45 transition-colors hover:bg-white/[0.12] hover:text-white"
+          >
+            {t("clearQueue")}
+          </button>
+        )}
       </div>
-    ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [p.queue, waitingCount, finishedCount]
+      <div className="scroll-thin max-h-[228px] min-h-[64px] space-y-1.5 overflow-y-auto pr-1">
+        {p.queue.length === 0 ? (
+          <div className="flex h-full min-h-[64px] flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-white/10 py-4 text-center">
+            <span className="text-xl opacity-40">⬇️</span>
+            <span className="text-xs font-semibold text-white/30">{t("statusWaiting")}</span>
+          </div>
+        ) : (
+          p.queue.map(renderItem)
+        )}
+      </div>
+    </div>
   );
 
   return (

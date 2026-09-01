@@ -114,6 +114,10 @@ export default function MiniPlayer() {
     loadWall();
     const onStorage = (e: StorageEvent) => {
       if (e.key === "volna-theme-v1") loadTheme();
+      if (e.key === "volna-mini-vol" && e.newValue !== null) {
+        const v = Number(e.newValue);
+        if (Number.isFinite(v)) setVolume(Math.round(Math.min(1, Math.max(0, v)) * 100));
+      }
       if (e.key === "volna-sync") {
         loadTheme();
         loadWall();
@@ -295,7 +299,7 @@ export default function MiniPlayer() {
   );
 
   /* ---------- содержимое по пресету ---------- */
-  let body: ReactNode = null;
+  let body: ReactNode;
   if (cfg.preset === "standard") {
     body = (
       <>
