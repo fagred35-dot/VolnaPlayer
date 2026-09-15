@@ -139,7 +139,7 @@ const DISCORD_APP_ID = process.env.VOLNA_DISCORD_APP_ID || "1482550819826962503"
 // тогда рядом с названием трека будет отображаться эта иконка.
 const DISCORD_ASSET = process.env.VOLNA_DISCORD_ASSET || "volna-icon";
 let rpc = null;
-let rpcEnabled = true;
+let rpcEnabled = false; // opt-in: трек не уходит в Discord без явного включения в настройках
 let lastActivity = null;
 
 function rpcInit() {
@@ -598,9 +598,13 @@ function registerProtocol() {
 
 /* ---------- мини-плеер ---------- */
 let miniWin = null;
+let mainWin = null;
 
 function getMainWindow() {
-  return BrowserWindow.getAllWindows().find((w) => w !== miniWin) || BrowserWindow.getAllWindows()[0];
+  // явная ссылка на основное окно: find() без неё возвращал мини-оверлей,
+  // когда главное окно закрыто, — команды MCP/sync уходили в окно, которое их не понимает
+  if (mainWin && !mainWin.isDestroyed()) return mainWin;
+  return BrowserWindow.getAllWindows().find((w) => w !== miniWin) || null;
 }
 
 function sendMiniVisibility(visible) {
@@ -1123,8 +1127,7 @@ function createWindow() {
     height,
     useContentSize: true,
     minWidth: 720,
-    minHeight: 540,
-    // прозрачный режим: сквозь окно видно рабочий стол (+ размытие за окном)
+    minHeight: 540,    // прозрачный режим: сквозь окно видно рабочий стол (+ размытие за окном)
     backgroundColor: windowPrefs.transparent ? "#00000000" : "#0a0d14",
     transparent: windowPrefs.transparent,
     autoHideMenuBar: true,
@@ -1150,6 +1153,11 @@ function createWindow() {
       nodeIntegration: false,
       spellcheck: false,
     },
+  });
+
+  mainWin = win;
+  win.on("closed", () => {
+    if (mainWin === win) mainWin = null;
   });
 
   // Размытие фона за окном (Windows 11): acrylic / mica

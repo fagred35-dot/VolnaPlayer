@@ -14,12 +14,22 @@ export function usePlaylists() {
 
   useEffect(() => {
     if (loadedRef.current) return;
-    loadedRef.current = true;
     loadMeta<Playlist[]>(KEY)
       .then((p) => {
-        if (Array.isArray(p)) setPlaylists(p);
+        loadedRef.current = true;
+        if (!Array.isArray(p)) return;
+        // Если до конца загрузки состояние уже изменилось (sync-merge создал
+        // плейлист, пользователь что-то добавил) — объединяем, а не затираем:
+        // локальные версии приоритетнее сохранённых.
+        setPlaylists((prev) => {
+          if (!prev.length) return p;
+          const prevIds = new Set(prev.map((x) => x.id));
+          return [...prev, ...p.filter((x) => !prevIds.has(x.id))];
+        });
       })
-      .catch(() => undefined);
+      .catch(() => {
+        loadedRef.current = true;
+      });
   }, []);
 
   useEffect(() => {

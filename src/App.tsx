@@ -150,7 +150,7 @@ export default function App() {
   const [creditsOpen, setCreditsOpen] = useState(false);
   const [dlOpen, setDlOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [rpcOn, setRpcOn] = useState(true);
+  const [rpcOn, setRpcOn] = useState(false);
   const [osWallpaperTarget, setOsWallpaperTarget] = useState<WallpaperTarget>("off");
   const [osWallpaperBlur, setOsWallpaperBlur] = useState<WallpaperBlur>("mid");
   const [logPanel, setLogPanel] = useState(true);
