@@ -1,11 +1,13 @@
 const { app, BrowserWindow, shell, dialog, ipcMain, protocol, net, screen, globalShortcut } = require("electron");
 const path = require("path");
+const os = require("os");
 const fs = require("fs");
 const fsp = require("fs/promises");
 const crypto = require("crypto");
 const { Readable } = require("stream");
 const { spawn } = require("child_process");
 const { startMcpServer } = require("./mcp-server");
+const syncServer = require("./sync-server");
 
 const AUDIO_RE = /\.(mp3|flac|wav|ogg|oga|m4a|aac|opus|webm|wma)$/i;
 const MIME = {
@@ -1190,6 +1192,91 @@ app.whenReady().then(() => {
   registerIpc();
   startMcp();
   rpcInit();
+  startSync();
+
+  /* ---------- сетевая синхронизация ---------- */
+  function startSync() {
+    let deviceId = "pc_" + crypto.randomBytes(5).toString("hex");
+    try {
+      const idFile = path.join(app.getPath("userData"), "sync-device-id");
+      if (fs.existsSync(idFile)) deviceId = fs.readFileSync(idFile, "utf8").trim() || deviceId;
+      else fs.writeFileSync(idFile, deviceId, "utf8");
+    } catch {
+      /* не критично */
+    }
+    const deviceName = os.hostname() || "Компьютер";
+    syncServer.startSyncServer({
+      deviceId,
+      deviceName,
+      appVersion: app.getVersion(),
+      dataDir: app.getPath("userData"),
+      onIncoming: (snap) => {
+        const w = getMainWindow();
+        if (w) safeSend(w, "sync-incoming", snap);
+      },
+    });
+    ipcMain.handle("sync-status", () => syncServer.status());
+    // Версия сборки для экрана «О приложении»
+    ipcMain.handle("app-version", () => app.getVersion());
+    // Открыть TCP+UDP 51789 в брандмауэре Windows (запросит UAC)
+    ipcMain.handle("sync-open-port", () =>
+      new Promise((resolve) => {
+        const inner =
+          'netsh advfirewall firewall delete rule name="Volna Sync" >nul 2>&1 & ' +
+          'netsh advfirewall firewall add rule name="Volna Sync" dir=in action=allow protocol=TCP localport=51789 & ' +
+          'netsh advfirewall firewall add rule name="Volna Sync UDP" dir=in action=allow protocol=UDP localport=51789';
+        const child = spawn(
+          "powershell.exe",
+          [
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            `(Start-Process cmd -ArgumentList '/c','${inner.replace(/'/g, "''")}' -Verb RunAs -Wait -PassThru).ExitCode`,
+          ],
+          { windowsHide: true }
+        );
+        child.on("close", (code) => resolve(code === 0));
+        child.on("error", () => resolve(false));
+      })
+    );
+    ipcMain.on("sync-publish", (_e, snap) => {
+      if (snap && Array.isArray(snap.tracks)) {
+        syncServer.publishOwn(snap);
+      }
+    });
+
+    // ---- запасная синхронизация файлом (когда сеть режется) ----
+    ipcMain.handle("lib-export", async (e, json) => {
+      const win = BrowserWindow.fromWebContents(e.sender);
+      const r = await dialog.showSaveDialog(win, {
+        title: "Экспорт библиотеки Волны",
+        defaultPath: "volna-library.json",
+        filters: [{ name: "Volna library", extensions: ["json"] }],
+      });
+      if (r.canceled || !r.filePath) return false;
+      try {
+        await fs.promises.writeFile(r.filePath, json, "utf8");
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    ipcMain.handle("lib-import", async (e) => {
+      const win = BrowserWindow.fromWebContents(e.sender);
+      const r = await dialog.showOpenDialog(win, {
+        title: "Импорт библиотеки Волны",
+        filters: [{ name: "Volna library", extensions: ["json"] }],
+        properties: ["openFile"],
+      });
+      if (r.canceled || !r.filePaths?.[0]) return null;
+      try {
+        return await fs.promises.readFile(r.filePaths[0], "utf8");
+      } catch {
+        return null;
+      }
+    });
+  }
+
   createWindow();
   // глобальный хоткей режима перемещения оверлея (как в Discord)
   try {

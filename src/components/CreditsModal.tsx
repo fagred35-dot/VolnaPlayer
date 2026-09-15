@@ -8,24 +8,29 @@ interface Props {
 interface OSS {
   name: string;
   url: string;
+  license: string;
   descEn: string;
   descRu: string;
 }
 
-const PROJECTS: OSS[] = [
-  { name: "Electron", url: "https://electronjs.org", descEn: "Windows app shell (chromium + node)", descRu: "Оболочка Windows-приложения (chromium + node)" },
-  { name: "React", url: "https://react.dev", descEn: "App interface", descRu: "Интерфейс приложения" },
-  { name: "Vite", url: "https://vitejs.org", descEn: "Frontend bundler", descRu: "Сборщик фронтенда" },
-  { name: "Tailwind CSS", url: "https://tailwindcss.com", descEn: "UI CSS framework", descRu: "CSS-фреймворк интерфейса" },
-  { name: "electron-builder", url: "https://www.electron.build", descEn: ".exe installer packaging", descRu: "Сборка .exe установщика" },
-  { name: "music-metadata", url: "https://github.com/Borewit/music-metadata", descEn: "MP3/FLAC tags & covers parsing", descRu: "Чтение тегов и обложек MP3/FLAC" },
-  { name: "yt-dlp", url: "https://github.com/yt-dlp/yt-dlp", descEn: "Audio downloads by link (1000+ sites)", descRu: "Скачивание аудио по ссылке (1000+ сайтов)" },
-  { name: "ffmpeg-static", url: "https://github.com/eugeneware/ffmpeg-static", descEn: "FFmpeg for MP3 conversion", descRu: "FFmpeg для конвертации в MP3" },
-  { name: "discord-rpc", url: "https://github.com/discordjs/RPC", descEn: "«Listening» status in Discord", descRu: "Статус «слушает» в Discord" },
-  { name: "Manrope / Unbounded", url: "https://fonts.google.com", descEn: "Interface fonts (Google Fonts)", descRu: "Шрифты интерфейса (Google Fonts)" },
-  { name: "iTunes Search API", url: "https://performance-partners.apple.com/search-api", descEn: "Album art lookup by title", descRu: "Обложки альбомов по названию" },
-  { name: "Deezer API", url: "https://developers.deezer.com", descEn: "Backup album art source", descRu: "Запасной источник обложек" },
-  { name: "Web Audio API", url: "https://developer.mozilla.org/docs/Web/API/Web_Audio_API", descEn: "Equalizer & visualization", descRu: "Эквалайзер и визуализация" },
+export const OSS_PROJECTS: OSS[] = [
+  { name: "React", url: "https://react.dev", license: "MIT", descEn: "App interface", descRu: "Интерфейс приложения" },
+  { name: "Vite", url: "https://vitejs.org", license: "MIT", descEn: "Frontend bundler", descRu: "Сборщик фронтенда" },
+  { name: "TypeScript", url: "https://typescriptlang.org", license: "Apache-2.0", descEn: "Typing over JavaScript", descRu: "Типизация поверх JavaScript" },
+  { name: "Tailwind CSS", url: "https://tailwindcss.com", license: "MIT", descEn: "UI CSS framework", descRu: "CSS-фреймворк интерфейса" },
+  { name: "Capacitor", url: "https://capacitorjs.com", license: "MIT", descEn: "Android/iOS app shell", descRu: "Оболочка приложения Android/iOS" },
+  { name: "Capacitor Filesystem", url: "https://github.com/ionic-team/capacitor-plugins", license: "MIT", descEn: "Music folder access on device", descRu: "Доступ к папкам с музыкой на устройстве" },
+  { name: "capacitor-media-session", url: "https://github.com/jofr/capacitor-media-session", license: "MIT", descEn: "Lock-screen playback controls", descRu: "Управление плеером с экрана блокировки" },
+  { name: "music-metadata", url: "https://github.com/Borewit/music-metadata", license: "MIT", descEn: "MP3/FLAC tags & covers parsing", descRu: "Чтение тегов и обложек MP3/FLAC" },
+  { name: "youtubedl-android", url: "https://github.com/JunkFood02/youtubedl-android", license: "Apache-2.0", descEn: "yt-dlp engine on Android (downloads)", descRu: "Движок yt-dlp на Android (загрузки)" },
+  { name: "yt-dlp", url: "https://github.com/yt-dlp/yt-dlp", license: "Unlicense", descEn: "Audio downloads by link (1000+ sites)", descRu: "Скачивание аудио по ссылке (1000+ сайтов)" },
+  { name: "FFmpeg", url: "https://ffmpeg.org", license: "LGPL/GPL", descEn: "Audio conversion (MP3)", descRu: "Конвертация аудио (MP3)" },
+  { name: "Electron", url: "https://electronjs.org", license: "MIT", descEn: "Windows app shell (chromium + node)", descRu: "Оболочка Windows-приложения (chromium + node)" },
+  { name: "electron-builder", url: "https://www.electron.build", license: "MIT", descEn: ".exe installer packaging", descRu: "Сборка .exe установщика" },
+  { name: "discord-rpc", url: "https://github.com/discordjs/RPC", license: "MIT", descEn: "«Listening» status in Discord (desktop)", descRu: "Статус «слушает» в Discord (десктоп)" },
+  { name: "Manrope / Unbounded", url: "https://fonts.google.com", license: "OFL", descEn: "Interface fonts (Google Fonts)", descRu: "Шрифты интерфейса (Google Fonts)" },
+  { name: "iTunes Search API", url: "https://performance-partners.apple.com/search-api", license: "Apple API", descEn: "Album art lookup by title", descRu: "Обложки альбомов по названию" },
+  { name: "Deezer API", url: "https://developers.deezer.com", license: "Deezer API", descEn: "Backup album art source", descRu: "Запасной источник обложек" },
 ];
 
 /** Все open-source проекты, использованные в приложении (открывается зажатием логотипа «Волна») */
@@ -58,7 +63,7 @@ export default function CreditsModal({ onClose }: Props) {
 
         <div className="scroll-thin flex-1 overflow-y-auto pr-1">
           <div className="space-y-1">
-            {PROJECTS.map((p) => (
+            {OSS_PROJECTS.map((p) => (
               <a
                 key={p.name}
                 href={p.url}
@@ -75,6 +80,7 @@ export default function CreditsModal({ onClose }: Props) {
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-bold text-white/85 transition-colors group-hover:text-[var(--accent)]">
                     {p.name}
+                    <span className="ml-2 text-[10px] font-bold text-white/25">{p.license}</span>
                   </div>
                   <div className="truncate text-xs text-white/40">{lang === "ru" ? p.descRu : p.descEn}</div>
                 </div>

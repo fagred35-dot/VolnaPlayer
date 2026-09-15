@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { deleteStored, getAllStored, getStoredBlob, loadMeta, saveMeta, saveTracks } from "../lib/db";
-import { parseFileName } from "../lib/format";
-import type { FolderScan, TagInfo } from "../electron.d";
+import { parseFileName, resolveMeta } from "../lib/format";
+import { isMobilePlatform } from "../lib/platform";
+import { extractCoverFromAudio, getCoverBytes, saveCover } from "../lib/covers";
+import { appLog } from "../lib/applog";
+import type { DeviceAudioTrack, FolderScan, TagInfo } from "../electron.d";
 import type { StoredTrack, Track } from "../types";
 import { hashId, uid } from "../types";
 
@@ -25,7 +28,50 @@ function probeDuration(file: File | Blob): Promise<number> {
 }
 
 function joinAbs(root: string, rel: string): string {
-  return `${root.replace(/[\\/]+$/, "")}\\${rel.replace(/\//g, "\\")}`;
+  // Electron: Windows-разделитель; мобильные/веб: обычный "/"
+  const win = typeof window !== "undefined" && !!window.volna && !isMobilePlatform();
+  if (win) return `${root.replace(/[\\/]+$/, "")}\\${rel.replace(/\//g, "\\")}`;
+  return `${root.replace(/[\\/]+$/, "")}/${rel.replace(/\\/g, "/")}`;
+}
+
+/**
+ * Теги файла, добавленного как блоб (кнопка «+», drag&drop). На мобильных и
+ * в вебе у файла нет пути — window.volna.getTags недоступен, поэтому читаем
+ * music-metadata прямо из блоба: исполнитель, альбом, длительность, обложка.
+ */
+async function readBlobTags(file: File | Blob): Promise<Partial<TagInfo>> {
+  const out: Partial<TagInfo> = {};
+  try {
+    const { parseBlob } = await import("music-metadata");
+    const meta = await parseBlob(file, { duration: false });
+    out.title = meta.common.title ?? null;
+    out.artist = meta.common.artist ?? null;
+    out.album = meta.common.album ?? null;
+    out.duration = meta.format.duration ?? 0;
+    // обложка: свой извлекатель (полные байты) → fallback music-metadata
+    let raw = await extractCoverFromAudio(file);
+    if (!raw) {
+      const pic = meta.common.picture?.[0];
+      if (pic && pic.data.length < 4_000_000) raw = { bytes: pic.data, mime: pic.format || "image/jpeg" };
+    }
+    if (raw && raw.bytes.length < 8_000_000) {
+      try {
+        out.coverHash = await saveCover(raw.bytes, raw.mime);
+      } catch {
+        /* обрезанное изображение — обложки не будет */
+      }
+    }
+  } catch {
+    /* нет тегов — остаются данные из имени файла */
+  }
+  if (!out.duration) {
+    try {
+      out.duration = await probeDuration(file);
+    } catch {
+      out.duration = 0;
+    }
+  }
+  return out;
 }
 
 export function useTracks() {
@@ -48,6 +94,30 @@ export function useTracks() {
           loadMeta<string[]>("favs"),
         ]);
         favsRef.current = new Set(Array.isArray(favs) ? favs : []);
+        // мобильная версия: лечим обложки, сохранённые обрезанными раньше —
+        // извлекаем заново из файла и перезаписываем
+        if (isMobilePlatform() && stored.some((s) => s.coverHash)) {
+          let healed = 0;
+          const fixed: StoredTrack[] = [];
+          for (const s of stored) {
+            if (!s.coverHash) continue;
+            const ok = await getCoverBytes(s.coverHash);
+            if (ok || !s.blob) continue;
+            const raw = await extractCoverFromAudio(s.blob);
+            if (!raw) continue;
+            try {
+              s.coverHash = await saveCover(raw.bytes, raw.mime);
+              fixed.push(s);
+              healed++;
+            } catch {
+              /* остаётся без обложки */
+            }
+          }
+          if (healed) {
+            await saveTracks(fixed);
+            appLog("art", `covers healed: ${healed}`);
+          }
+        }
         const list: Track[] = stored.map(({ blob: _b, ...meta }) => meta);
         if (order && order.length) {
           const pos = new Map(order.map((id, i) => [id, i]));
@@ -105,10 +175,17 @@ export function useTracks() {
           }
         }
         let d = tags?.duration ?? 0;
-        if (!d && !tr.path) {
+        if (!tr.path) {
+          // трек-блоб: теги (и обложка) дочитываются прямо из хранилища
           try {
             const blob = await getStoredBlob(tr.id);
-            if (blob) d = await probeDuration(blob);
+            if (blob) {
+              const bt = await readBlobTags(blob);
+              if (!alive) return;
+              tags = { ...bt, duration: bt.duration ?? 0 } as TagInfo;
+              d = tags.duration ?? 0;
+            }
+            if (!d) d = await probeDuration(blob ?? new Blob());
           } catch {
             /* пропускаем */
           }
@@ -119,6 +196,12 @@ export function useTracks() {
           if (tags.artist && !tr.artist) patch.artist = tags.artist;
           if (tags.album && !tr.album) patch.album = tags.album;
           if (tags.coverHash && !tr.coverHash) patch.coverHash = tags.coverHash;
+          // «Исполнитель - название» в заголовке тега — разбираем по имени файла
+          if (tags.title && tr.title.includes(" - ")) {
+            const meta = resolveMeta(tr.fileName, { title: tags.title, artist: tags.artist });
+            if (meta.artist) patch.artist = meta.artist;
+            if (meta.title && meta.title !== tr.title) patch.title = meta.title;
+          }
         }
         if (!alive || !Object.keys(patch).length) continue;
         setTracks((prev) => prev.map((x) => (x.id === tr.id ? { ...x, ...patch } : x)));
@@ -138,11 +221,11 @@ export function useTracks() {
 
   const makeFolderTrack = useCallback(
     (f: FolderScan["files"][number], abs: string, tags?: TagInfo, old?: Track): Track => {
-      const parsed = parseFileName(f.rel);
+      const meta = resolveMeta(f.rel, tags ? { title: tags.title, artist: tags.artist } : undefined);
       return {
         id: hashId(abs),
-        title: tags?.title || old?.title || parsed.title,
-        artist: tags?.artist || old?.artist || parsed.artist,
+        title: meta.title || old?.title || parseFileName(f.rel).title,
+        artist: meta.artist || old?.artist || "",
         album: tags?.album ?? old?.album,
         duration: tags?.duration || old?.duration || 0,
         addedAt: old?.addedAt ?? Date.now(),
@@ -252,18 +335,20 @@ export function useTracks() {
           const i = idx++;
           const f = fresh[i];
           try {
-            const duration = await probeDuration(f);
-            const { title, artist } = parseFileName(f.name);
+            const tags = await readBlobTags(f);
+            const meta = resolveMeta(f.name, { title: tags.title, artist: tags.artist });
             results[i] = {
               id: uid(),
-              title,
-              artist,
-              duration,
+              title: meta.title,
+              artist: meta.artist,
+              album: tags.album ?? undefined,
+              duration: tags.duration ?? 0,
               addedAt: Date.now(),
               fav: false,
               fileName: f.name,
               fileSize: f.size,
               fileLastModified: f.lastModified,
+              coverHash: tags.coverHash ?? undefined,
               blob: f,
             };
           } catch {
@@ -284,6 +369,37 @@ export function useTracks() {
       return added.length;
     },
     [tracks, persistOrder]
+  );
+
+  /** Треки из MediaStore устройства («Вся музыка на устройстве», Android) */
+  const addDeviceAudio = useCallback(
+    async (list: DeviceAudioTrack[]): Promise<number> => {
+      const prev = tracksRef.current;
+      const byPath = new Set(prev.filter((t) => t.path).map((t) => t.path as string));
+      const fresh = list.filter((d) => d.path && !byPath.has(d.path));
+      if (!fresh.length) return 0;
+      const next: Track[] = fresh.map((d) => {
+        const base = d.path.split(/[\\/]/).pop() || d.path;
+        return {
+          id: hashId(d.path),
+          title: d.title,
+          artist: d.artist || "",
+          album: d.album || undefined,
+          duration: d.duration || 0,
+          addedAt: Date.now(),
+          fav: favsRef.current.has(hashId(d.path)),
+          fileName: base,
+          fileSize: d.size || 0,
+          path: d.path,
+        };
+      });
+      // новые — наверх списка
+      const merged = [...next, ...prev];
+      setTracks(merged);
+      persistOrder(merged);
+      return next.length;
+    },
+    [persistOrder]
   );
 
   const removeTrack = useCallback(
@@ -385,6 +501,33 @@ export function useTracks() {
     [persistOrder]
   );
 
+  /** Массовое применение избранного (сетевая синхронизация) */
+  const mergeFavs = useCallback((pairs: Array<{ id: string; fav: boolean }>) => {
+    const toFav = new Set(pairs.filter((x) => x.fav).map((x) => x.id));
+    if (!toFav.size) return;
+    setTracks((prev) => prev.map((t) => (toFav.has(t.id) && !t.fav ? { ...t, fav: true } : t)));
+    const pathIds = new Set(tracksRef.current.filter((t) => t.path).map((t) => t.id));
+    const favSet = new Set(favsRef.current);
+    let favsChanged = false;
+    for (const id of toFav) {
+      if (pathIds.has(id) && !favSet.has(id)) {
+        favSet.add(id);
+        favsChanged = true;
+      }
+    }
+    if (favsChanged) {
+      favsRef.current = favSet;
+      saveMeta("favs", [...favSet]).catch(() => undefined);
+    }
+    getAllStored()
+      .then((stored) => {
+        const recs = stored.filter((s) => toFav.has(s.id) && !s.fav).map((s) => ({ ...s, fav: true }));
+        if (recs.length) return saveTracks(recs);
+        return undefined;
+      })
+      .catch(() => undefined);
+  }, []);
+
   return {
     tracks,
     ready,
@@ -399,6 +542,8 @@ export function useTracks() {
     rescanFolder,
     openFolderInExplorer,
     applyScanLocal,
+    addDeviceAudio,
     addExternalTrack,
+    mergeFavs,
   };
 }

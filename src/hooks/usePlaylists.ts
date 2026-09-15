@@ -1,13 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { loadMeta, saveMeta } from "../lib/db";
-import { uid } from "../types";
+import { uid, type Playlist } from "../types";
 
-export interface Playlist {
-  id: string;
-  name: string;
-  trackIds: string[];
-  createdAt: number;
-}
+export type { Playlist };
 
 const KEY = "volna-playlists-v1";
 
@@ -86,5 +81,5 @@ export function usePlaylists() {
     );
   }, []);
 
-  return { playlists, activeId, setActiveId, create, remove, addTrack, removeTrack, removeTrackFromAll, moveTrack };
+  return { playlists, activeId, setActiveId, setPlaylists, create, remove, addTrack, removeTrack, removeTrackFromAll, moveTrack };
 }

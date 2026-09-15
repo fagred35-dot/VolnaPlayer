@@ -178,6 +178,36 @@ export const IconMenu = (p: P) => (
   </svg>
 );
 
+export const IconDots = (p: P) => (
+  <svg viewBox="0 0 24 24" fill="currentColor" {...p}>
+    <circle cx="5" cy="12" r="2" />
+    <circle cx="12" cy="12" r="2" />
+    <circle cx="19" cy="12" r="2" />
+  </svg>
+);
+
+export const IconPc = (p: P) => (
+  <svg {...base(p)}>
+    <rect x="2" y="4" width="20" height="13" rx="2" />
+    <path d="M8 21h8M12 17v4" />
+  </svg>
+);
+
+export const IconPhone = (p: P) => (
+  <svg {...base(p)}>
+    <rect x="7" y="2" width="10" height="20" rx="2.5" />
+    <path d="M11 18.5h2" />
+  </svg>
+);
+
+export const IconSync = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M21 12a9 9 0 0 1-15.5 6.2L3 16" />
+    <path d="M3 12a9 9 0 0 1 15.5-6.2L21 8" />
+    <path d="M21 3v5h-5M3 21v-5h5" />
+  </svg>
+);
+
 export const IconRefresh = (p: P) => (
   <svg {...base(p)}>
     <path d="M21 12a9 9 0 1 1-2.6-6.3" />

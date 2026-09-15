@@ -4,6 +4,10 @@ import "./index.css";
 import App from "./App";
 import MiniPlayer from "./mini/MiniPlayer";
 import { LangProvider } from "./lib/i18n";
+import { installMobileBridge } from "./mobile/bridge";
+
+// Мобильная версия (Capacitor): ставит window.volna-полифилл до монтирования React
+installMobileBridge();
 
 // Electron-окно мини-плеера грузит тот же index.html с параметром ?mini=1
 const isMini = new URLSearchParams(window.location.search).get("mini") === "1";

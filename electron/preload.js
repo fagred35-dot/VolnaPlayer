@@ -82,4 +82,18 @@ contextBridge.exposeInMainWorld("volna", {
     ipcRenderer.on("dl-error", l);
     return () => ipcRenderer.removeListener("dl-error", l);
   },
+  /** ---- сетевая синхронизация ---- */
+  syncStatus: () => ipcRenderer.invoke("sync-status"),
+  syncOpenPort: () => ipcRenderer.invoke("sync-open-port"),
+  /** запасная синхронизация файлом */
+  libExport: (json) => ipcRenderer.invoke("lib-export", json),
+  libImport: () => ipcRenderer.invoke("lib-import"),
+  syncPublish: (snap) => ipcRenderer.send("sync-publish", snap),
+  onSyncIncoming: (cb) => {
+    const l = (_e, s) => cb(s);
+    ipcRenderer.on("sync-incoming", l);
+    return () => ipcRenderer.removeListener("sync-incoming", l);
+  },
+  /** ---- версия сборки ---- */
+  getAppVersion: () => ipcRenderer.invoke("app-version"),
 });

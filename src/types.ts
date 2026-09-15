@@ -27,6 +27,15 @@ export interface StoredTrack extends Track {
 export type RepeatMode = "off" | "all" | "one";
 export type SortKey = "order" | "title" | "artist" | "album" | "duration" | "added";
 
+export interface Playlist {
+  id: string;
+  name: string;
+  trackIds: string[];
+  createdAt: number;
+  /** ключи треков с другого устройства, которых пока нет локально (сетевая синхронизация) */
+  pendingKeys?: string[];
+}
+
 export interface Toast {
   id: number;
   text: string;

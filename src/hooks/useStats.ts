@@ -48,5 +48,5 @@ export function useStats() {
     });
   }, []);
 
-  return { stats, recordPlay, recordListen };
+  return { stats, recordPlay, recordListen, setStats };
 }

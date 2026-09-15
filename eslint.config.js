@@ -3,7 +3,7 @@ import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist/**", "electron/**", "node_modules/**", "release/**"] },
+  { ignores: ["dist/**", "electron/**", "node_modules/**", "release/**", "android/**", "assets/**"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -16,6 +16,26 @@ export default tseslint.config(
         "warn",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrors: "none" },
       ],
+    },
+  },
+  {
+    // node-скрипты (smoke-тесты): CommonJS + глобалы Node.js
+    files: ["scripts/**/*.cjs"],
+    languageOptions: {
+      globals: {
+        console: "readonly",
+        process: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+        fetch: "readonly",
+        Buffer: "readonly",
+        require: "readonly",
+        module: "writable",
+      },
+    },
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+      "no-empty": "off",
     },
   }
 );

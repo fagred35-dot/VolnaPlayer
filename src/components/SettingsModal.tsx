@@ -1,9 +1,12 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useI18n } from "../lib/i18n";
 import AccentPicker from "./AccentPicker";
-import { IconChart, IconGlobe, IconMusic, IconPalette, IconSliders, IconX } from "./icons";
+import { IconChart, IconGlobe, IconImage, IconPalette, IconSliders, IconX } from "./icons";
 import type { Lang } from "../lib/i18n";
 import type { McpInfo } from "../electron.d";
+import { isMobilePlatform } from "../lib/platform";
+import { OSS_PROJECTS } from "./CreditsModal";
+import type { WallpaperBlur, WallpaperTarget } from "../hooks/useCoverWallpaper";
 
 /** Копирование в буфер с fallback для окружений без Clipboard API */
 function copyToClipboard(text: string, onDone: () => void) {
@@ -37,6 +40,16 @@ interface Props {
   onOpenThemes: () => void;
   onOpenEq: () => void;
   onOpenCredits: () => void;
+  /** версия сборки (runtime) */
+  version?: string;
+  /** обои из обложки (Android): цель + сила размытия */
+  osWallpaperTarget: WallpaperTarget;
+  onOsWallpaperTarget: (t: WallpaperTarget) => void;
+  osWallpaperBlur: WallpaperBlur;
+  onOsWallpaperBlur: (b: WallpaperBlur) => void;
+  /** плавающая кнопка журнала (Android): лог под рукой для диагностики */
+  logPanel: boolean;
+  onLogPanel: (v: boolean) => void;
   onClose: () => void;
 }
 
@@ -53,6 +66,8 @@ export default function SettingsModal(p: Props) {
   const [mcpOpen, setMcpOpen] = useState(false);
   const [mcpInfo, setMcpInfo] = useState<McpInfo | null>(null);
   const [copiedTag, setCopiedTag] = useState<string | null>(null);
+  const [wpOpen, setWpOpen] = useState(false);
+  const [crashText, setCrashText] = useState("");
 
   /* пока панель MCP открыта — раз в 2 с перечитываем порт (сервер мог стартовать) */
   useEffect(() => {
@@ -66,6 +81,15 @@ export default function SettingsModal(p: Props) {
       clearInterval(id);
     };
   }, [mcpOpen]);
+
+  /* последний нативный сбой — читаем при открытии вкладки «О приложении» (Android) */
+  useEffect(() => {
+    if (tab !== "about" || !isMobilePlatform()) return;
+    window.volna
+      ?.getCrashLog?.()
+      .then((r) => setCrashText(r?.text ?? ""))
+      .catch(() => setCrashText(""));
+  }, [tab]);
 
   const copyText = (text: string, tag: string) => {
     copyToClipboard(text, () => {
@@ -120,33 +144,43 @@ export default function SettingsModal(p: Props) {
   const tabs: Array<{ id: Tab; name: string; icon: typeof IconPalette }> = [
     { id: "general", name: t("setTabGeneral"), icon: IconSliders },
     { id: "appearance", name: t("setTabAppearance"), icon: IconPalette },
-    { id: "integrations", name: t("setTabIntegrations"), icon: IconGlobe },
+    // на телефонах интеграций (Discord RPC, MCP) нет — вкладка не нужна
+    ...(isMobilePlatform() ? [] : [{ id: "integrations" as Tab, name: t("setTabIntegrations"), icon: IconGlobe }]),
     { id: "about", name: t("setTabAbout"), icon: IconChart },
   ];
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm sm:p-6"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm sm:p-4 md:p-6"
       onClick={(e) => {
         if (e.target === e.currentTarget) p.onClose();
       }}
     >
       <div
-        className="anim-in glass bg-panel flex max-h-[80vh] w-full max-w-[620px] rounded-3xl shadow-2xl"
+        className="anim-in glass bg-panel flex h-full max-h-none w-full max-w-[620px] flex-col overflow-hidden rounded-none shadow-2xl sm:h-auto sm:max-h-[85vh] md:max-h-[80vh] md:flex-row md:rounded-3xl"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* левая колонка — вкладки */}
-        <div className="flex w-[178px] shrink-0 flex-col rounded-l-3xl bg-black/20 p-4">
-          <div className="px-1">
-            <div className="font-display text-lg font-bold">{t("settingsTitle")}</div>
-            <div className="mt-0.5 text-[10px] font-medium leading-snug text-white/35">{t("settingsSubtitle")}</div>
+        {/* левая колонка — вкладки (на телефоне: шапка + горизонтальный ряд) */}
+        <div className="flex shrink-0 flex-col bg-black/20 px-3 py-3 md:w-[178px] md:rounded-l-3xl md:p-4">
+          <div className="flex items-center gap-2">
+            <div className="min-w-0 flex-1 md:px-1">
+              <div className="truncate font-display text-base font-bold md:text-lg">{t("settingsTitle")}</div>
+              <div className="mt-0.5 hidden text-[10px] font-medium leading-snug text-white/35 md:block">{t("settingsSubtitle")}</div>
+            </div>
+            <button
+              onClick={p.onClose}
+              className="rounded-xl bg-white/[0.06] p-2 text-white/60 transition-all active:scale-90 md:hidden"
+              aria-label={t("close")}
+            >
+              <IconX className="h-4.5 w-4.5" />
+            </button>
           </div>
-          <div className="mt-4 space-y-1">
+          <div className="scroll-thin mt-2 flex gap-1 overflow-x-auto md:mt-4 md:block md:space-y-1">
             {tabs.map((tb) => (
               <button
                 key={tb.id}
                 onClick={() => setTab(tb.id)}
-                className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-[13px] font-bold transition-all ${
+                className={`flex shrink-0 items-center gap-2.5 whitespace-nowrap rounded-xl px-3 py-2 text-left text-[13px] font-bold transition-all md:w-full md:py-2.5 ${
                   tab === tb.id
                     ? "bg-[var(--accent)] text-white shadow-[0_4px_14px_-4px_var(--accent)]"
                     : "text-white/55 hover:bg-white/[0.06] hover:text-white"
@@ -157,10 +191,10 @@ export default function SettingsModal(p: Props) {
               </button>
             ))}
           </div>
-          <div className="flex-1" />
+          <div className="hidden flex-1 md:block" />
           <button
             onClick={p.onClose}
-            className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-[13px] font-bold text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white"
+            className="hidden items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-[13px] font-bold text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white md:flex"
           >
             <IconX className="h-4 w-4 shrink-0" />
             {t("close")}
@@ -169,7 +203,7 @@ export default function SettingsModal(p: Props) {
 
         {/* правая колонка — содержимое вкладки */}
         <div className="scroll-thin min-h-0 flex-1 overflow-y-auto p-4">
-          <div className="min-h-[380px] space-y-1.5">
+          <div className="md:min-h-[380px] space-y-1.5">
             {tab === "general" && (
               <>
                 {renderRow({
@@ -230,6 +264,101 @@ export default function SettingsModal(p: Props) {
                     p.onClose();
                   },
                 })}
+                {isMobilePlatform() &&
+                  renderRow({
+                    icon: (
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--accent)]/15 text-[var(--accent)]">
+                        <IconImage className="h-4.5 w-4.5" />
+                      </span>
+                    ),
+                    title: t("osWallpaperTitle"),
+                    desc: t("osWallpaperDesc"),
+                    onClick: () => setWpOpen((o) => !o),
+                    right: (
+                      <span className="shrink-0 text-[11px] font-bold text-white/35">
+                        {p.osWallpaperTarget === "off" ? t("osWallpaperOptOff") : t("osWallpaperOn")}
+                        {wpOpen ? " ▾" : " ▸"}
+                      </span>
+                    ),
+                  })}
+                {isMobilePlatform() && wpOpen && (
+                  <div className="mx-2 mb-1 space-y-3 rounded-2xl bg-black/25 p-4">
+                    <div>
+                      <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-white/35">{t("osWallpaperTarget")}</div>
+                      <div className="flex flex-wrap gap-1">
+                        {(
+                          [
+                            ["off", t("osWallpaperOptOff")],
+                            ["system", t("osWallpaperOptSystem")],
+                            ["lock", t("osWallpaperOptLock")],
+                            ["both", t("osWallpaperOptBoth")],
+                          ] as Array<[WallpaperTarget, string]>
+                        ).map(([id, label]) => (
+                          <button
+                            key={id}
+                            onClick={() => p.onOsWallpaperTarget(id)}
+                            className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-all ${
+                              p.osWallpaperTarget === id
+                                ? "bg-[var(--accent)] text-white shadow-[0_3px_12px_-3px_var(--accent)]"
+                                : "bg-white/[0.07] text-white/55 hover:bg-white/[0.14] hover:text-white"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-white/35">{t("osWallpaperBlur")}</div>
+                      <div className="flex flex-wrap gap-1">
+                        {(
+                          [
+                            ["off", t("osWallpaperOptOff")],
+                            ["low", t("osWallpaperBlurLow")],
+                            ["mid", t("osWallpaperBlurMid")],
+                            ["high", t("osWallpaperBlurHigh")],
+                          ] as Array<[WallpaperBlur, string]>
+                        ).map(([id, label]) => (
+                          <button
+                            key={id}
+                            onClick={() => p.onOsWallpaperBlur(id)}
+                            className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-all ${
+                              p.osWallpaperBlur === id
+                                ? "bg-[var(--accent)] text-white shadow-[0_3px_12px_-3px_var(--accent)]"
+                                : "bg-white/[0.07] text-white/55 hover:bg-white/[0.14] hover:text-white"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <p className="text-[11px] font-medium leading-snug text-white/35">{t("osWallpaperNote")}</p>
+                  </div>
+                )}
+
+                {isMobilePlatform() &&
+                  renderRow({
+                    icon: (
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/[0.07] text-lg leading-none">
+                        📝
+                      </span>
+                    ),
+                    title: t("logPanelRow"),
+                    desc: t("logPanelDesc"),
+                    onClick: () => p.onLogPanel(!p.logPanel),
+                    right: (
+                      <span
+                        className={`relative shrink-0 rounded-full transition-colors ${p.logPanel ? "bg-[var(--accent)]" : "bg-white/15"}`}
+                        style={{ width: 42, height: 24 }}
+                      >
+                        <span
+                          className="absolute top-[3px] h-[18px] w-[18px] rounded-full bg-white shadow transition-all"
+                          style={{ left: p.logPanel ? 21 : 3 }}
+                        />
+                      </span>
+                    ),
+                  })}
               </>
             )}
 
@@ -348,21 +477,60 @@ export default function SettingsModal(p: Props) {
                     p.onClose();
                   },
                 })}
-                {renderRow({
-                  icon: (
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/[0.07] text-white/60">
-                      <IconMusic className="h-4.5 w-4.5" />
-                    </span>
-                  ),
-                  title: t("aboutRowTitle"),
-                  desc: t("aboutRowDesc"),
-                  onClick: () => {
-                    p.onOpenCredits();
-                    p.onClose();
-                  },
-                })}
+                {isMobilePlatform() && crashText && (
+                  <div className="rounded-2xl px-4 py-3">
+                    <div className="text-sm font-bold text-red-300/90">{t("crashRowTitle")}</div>
+                    <pre
+                      dir="ltr"
+                      className="scroll-thin mt-2 max-h-36 overflow-auto rounded-lg bg-black/30 p-3 font-mono text-[10.5px] leading-relaxed text-white/70"
+                    >
+                      {crashText}
+                    </pre>
+                    <div className="mt-2 flex gap-2">
+                      <button
+                        onClick={() => copyText(crashText, "crash")}
+                        className="flex-1 rounded-lg bg-white/[0.08] px-3 py-2 text-[11px] font-bold text-white/70 transition-colors hover:bg-white/[0.16] hover:text-white"
+                      >
+                        {copiedTag === "crash" ? t("mcpCopied") : t("mcpCopy")}
+                      </button>
+                      <button
+                        onClick={() => {
+                          window.volna
+                            ?.clearCrashLog?.()
+                            .then(() => setCrashText(""))
+                            .catch(() => undefined);
+                        }}
+                        className="flex-1 rounded-lg bg-white/[0.08] px-3 py-2 text-[11px] font-bold text-white/70 transition-colors hover:bg-white/[0.16] hover:text-white"
+                      >
+                        {t("crashClear")}
+                      </button>
+                    </div>
+                    <p className="mt-2 text-[11px] font-medium leading-snug text-white/35">{t("crashRowDesc")}</p>
+                  </div>
+                )}
+                <div className="rounded-2xl px-4 py-3">
+                  <div className="text-sm font-bold text-white/90">{t("creditsTitle")}</div>
+                  <div className="mt-2 space-y-0.5">
+                    {OSS_PROJECTS.map((p2) => (
+                      <a
+                        key={p2.name}
+                        href={p2.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="group flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.05]"
+                      >
+                        <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-white/70 transition-colors group-hover:text-[var(--accent)]">
+                          {p2.name}
+                        </span>
+                        <span className="shrink-0 text-[10px] font-bold text-white/25">{p2.license}</span>
+                        <span className="shrink-0 text-[10px] font-bold text-white/25 transition-colors group-hover:text-[var(--accent)]">↗</span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
                 <div className="px-4 pt-3 text-center text-[11px] font-medium text-white/25">
-                  Волна · 1.3.2 · MIT
+                  {t("appName")}
+                  {p.version ? ` · v${p.version}` : ""} · MIT
                 </div>
               </>
             )}

@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import type { Track } from "../types";
 import { huePairFromId } from "../lib/format";
 import { getArt } from "../lib/art";
+import { isMobilePlatform } from "../lib/platform";
+import { getCoverUrl } from "../lib/covers";
 
 interface Props {
   track: Track;
@@ -70,14 +72,20 @@ export default function TrackCover({ track, className = "", iconClassName = "" }
       });
     };
 
-    if (track.coverHash && window.volna) {
+    if (track.coverHash && window.volna && !isMobilePlatform()) {
       applyArt(`volna://cover/${track.coverHash}`);
       loadInternet();
       return () => {
         alive = false;
       };
     }
-    applyArt(null);
+    // мобильная версия: обложка из встроенных тегов (IndexedDB) → интернет → градиент
+    if (track.coverHash && isMobilePlatform()) {
+      getCoverUrl(track.coverHash).then((u) => {
+        if (!alive || !u) return;
+        applyArt(u);
+      });
+    }
     loadInternet();
     return () => {
       alive = false;

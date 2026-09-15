@@ -100,10 +100,30 @@ export interface McpInfo {
   config: string;
 }
 
+/** Снапшот библиотеки для сетевой синхронизации (сервер на ПК) */
+export interface SyncServerStatus {
+  running: boolean;
+  port: number | null;
+  localIp: string | null;
+  deviceName: string;
+}
+
+/** Трек из MediaStore устройства (Android) */
+export interface DeviceAudioTrack {
+  path: string;
+  title: string;
+  artist: string;
+  album: string;
+  duration: number;
+  size: number;
+}
+
 declare global {
   interface Window {
     volna?: {
       platform: string;
+      /** абсолютный путь → URL, проигрываемый в WebView (только мобильный полифилл) */
+      fileUrl?: (path: string) => string;
       pickFolder: () => Promise<FolderScan | null>;
       scanFolder: (path: string) => Promise<FolderScan | null>;
       getTags: (paths: string[]) => Promise<Record<string, TagInfo | undefined>>;
@@ -152,6 +172,26 @@ declare global {
         cb: (d: { path: string; title: string; artist?: string; album?: string; duration?: number; coverHash?: string | null }) => void
       ) => () => void;
       onDlError: (cb: (d: { message: string }) => void) => () => void;
+      /** ---- сетевая синхронизация (сервер работает только на ПК) ---- */
+      /** статус сервера: порт, локальный IP, имя устройства */
+      syncStatus: () => Promise<SyncServerStatus>;
+      /** открыть TCP 51789 в брандмауэре Windows (UAC) */
+      syncOpenPort: () => Promise<boolean>;
+      /** рендерер публикует свой снапшот (сервер начнёт его отдавать) */
+      syncPublish: (snap: unknown) => void;
+      /** на сервер пришёл снапшот с другого устройства */
+      onSyncIncoming: (cb: (snap: unknown) => void) => () => void;
+      /** вся аудиобиблиотека устройства через MediaStore (только мобильный полифилл) */
+      listAllAudio?: () => Promise<DeviceAudioTrack[]>;
+      /** запасная синхронизация файлом: сохранить JSON (ПК — диалог, Android — Downloads) */
+      libExport?: (json: string) => Promise<boolean>;
+      /** запасная синхронизация файлом: прочитать JSON (ПК — диалог; на Android — null) */
+      libImport?: () => Promise<string | null>;
+      /** версия сборки (ПК: app.getVersion(), Android: PackageManager) */
+      getAppVersion?: () => Promise<{ version: string; build: number }>;
+      /** последний нативный сбой (только мобильный полифилл) */
+      getCrashLog?: () => Promise<{ text: string }>;
+      clearCrashLog?: () => Promise<{ ok: boolean }>;
     };
   }
 }

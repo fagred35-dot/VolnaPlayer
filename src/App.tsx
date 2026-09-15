@@ -21,6 +21,9 @@ import Toasts from "./components/Toasts";
 import EmptyState from "./components/EmptyState";
 import ThemesModal from "./components/ThemesModal";
 import QueueModal from "./components/QueueModal";
+import NowPlayingSheet from "./components/NowPlayingSheet";
+import LogBubble from "./components/LogBubble";
+import { installGlobalErrorLogging } from "./lib/applog";
 import TrackMenu from "./components/TrackMenu";
 import { usePlaylists } from "./hooks/usePlaylists";
 import { IconFolder, IconGrid, IconList, IconMax, IconMenu, IconMin, IconPlus, IconRestore, IconSearch, IconSort, IconX } from "./components/icons";
@@ -34,7 +37,15 @@ import { useStats } from "./hooks/useStats";
 import { countText, useI18n } from "./lib/i18n";
 import { useDownloadQueue } from "./hooks/useDownloadQueue";
 import ConfirmDialog from "./components/ConfirmDialog";
-import type { McpCommand, McpSnapshot } from "./electron.d";
+import type { DeviceAudioTrack, McpCommand, McpSnapshot } from "./electron.d";
+import { isElectronVolna, isMobilePlatform, trackSrc } from "./lib/platform";
+import FolderPicker from "./mobile/FolderPicker";
+import { useMediaSession } from "./mobile/useMediaSession";
+import { useCoverWallpaper, type WallpaperBlur, type WallpaperTarget } from "./hooks/useCoverWallpaper";
+import SyncBanner from "./components/SyncBanner";
+import { useSync } from "./hooks/useSync";
+import { buildSnapshot, mergeIncoming, loadDevice, setSyncAppVersion, type SyncDevice, type SyncSnapshot } from "./lib/sync";
+import { BUILD_VERSION } from "./lib/version";
 
 const SPEEDS = [1, 1.25, 1.5, 2, 0.75];
 const DEFAULT_EQ: EqState = {
@@ -58,7 +69,9 @@ export default function App() {
     rescanFolder,
     openFolderInExplorer,
     applyScanLocal,
+    addDeviceAudio,
     addExternalTrack,
+    mergeFavs,
   } = useTracks();
 
   const [currentId, setCurrentId] = useState<string | null>(null);
@@ -84,6 +97,39 @@ export default function App() {
     timer: false,
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [folderPickerOpen, setFolderPickerOpen] = useState(false);
+  const swipeRef = useRef<HTMLDivElement | null>(null);
+
+  /* свайп бокового меню на тач-экранах: от левого края — открыть, влево — закрыть */
+  useEffect(() => {
+    const el = swipeRef.current;
+    if (!el || !window.matchMedia("(pointer: coarse)").matches) return;
+    let x0 = 0;
+    let y0 = 0;
+    let tracking = false;
+    const onStart = (e: TouchEvent) => {
+      const t0 = e.touches[0];
+      tracking = t0.clientX < 32 || sidebarOpen;
+      x0 = t0.clientX;
+      y0 = t0.clientY;
+    };
+    const onEnd = (e: TouchEvent) => {
+      if (!tracking) return;
+      tracking = false;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - x0;
+      const dy = Math.abs(t.clientY - y0);
+      if (dy > 56) return;
+      if (!sidebarOpen && dx > 56 && x0 < 32) setSidebarOpen(true);
+      if (sidebarOpen && dx < -56) setSidebarOpen(false);
+    };
+    el.addEventListener("touchstart", onStart, { passive: true });
+    el.addEventListener("touchend", onEnd, { passive: true });
+    return () => {
+      el.removeEventListener("touchstart", onStart);
+      el.removeEventListener("touchend", onEnd);
+    };
+  }, [sidebarOpen]);
   const [trackGains, setTrackGains] = useState<Record<string, number>>({});
   const pl = usePlaylists();
   const { removeTrackFromAll } = pl;
@@ -93,6 +139,7 @@ export default function App() {
 
   const [queueIds, setQueueIds] = useState<string[]>([]);
   const [queueOpen, setQueueOpen] = useState(false);
+  const [nowPlayingOpen, setNowPlayingOpen] = useState(false);
   const [menuTrack, setMenuTrack] = useState<{ track: Track; x: number; y: number } | null>(null);
   const [confirmDel, setConfirmDel] = useState<Track | null>(null);
   const [recentOpen, setRecentOpen] = useState(false);
@@ -104,12 +151,48 @@ export default function App() {
   const [dlOpen, setDlOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [rpcOn, setRpcOn] = useState(true);
+  const [osWallpaperTarget, setOsWallpaperTarget] = useState<WallpaperTarget>("off");
+  const [osWallpaperBlur, setOsWallpaperBlur] = useState<WallpaperBlur>("mid");
+  const [logPanel, setLogPanel] = useState(true);
+  const [appVersion, setAppVersion] = useState(BUILD_VERSION);
   const [winTransparent, setWinTransparent] = useState(false);
   const [winMaterial, setWinMaterial] = useState<"none" | "acrylic" | "mica">("none");
   const [maximized, setMaximized] = useState(false);
-  const { stats, recordPlay, recordListen } = useStats();
+  const { stats, recordPlay, recordListen, setStats } = useStats();
   const playStartRef = useRef<number | null>(null);
   const statIdRef = useRef<string | null>(null);
+
+  /* ---------- сетевая синхронизация (ПК + телефон) ---------- */
+  const tracksSyncRef = useRef(tracks);
+  tracksSyncRef.current = tracks;
+  const plsSyncRef = useRef(playlists);
+  plsSyncRef.current = playlists;
+  const statsSyncRef = useRef(stats);
+  statsSyncRef.current = stats;
+  const syncDeviceRef = useRef<SyncDevice>(loadDevice());
+  const syncEnabled = isElectronVolna() || isMobilePlatform();
+
+  const applyIncomingSnapshot = useCallback((snap: SyncSnapshot) => {
+    const res = mergeIncoming(tracksSyncRef.current, plsSyncRef.current, statsSyncRef.current, snap);
+    if (res.favPatches.length) mergeFavs(res.favPatches);
+    if (Object.keys(res.statsPatches).length) {
+      setStats((prev) => ({ ...prev, ...res.statsPatches }));
+    }
+    if (res.playlists) pl.setPlaylists(res.playlists);
+  }, [mergeFavs, setStats, pl]);
+
+  const syncSnapshot = useMemo(() => {
+    if (!syncEnabled || !ready) return null;
+    return buildSnapshot(syncDeviceRef.current, tracks, playlists, stats);
+  }, [syncEnabled, ready, tracks, playlists, stats]);
+
+  const sync = useSync({
+    enabled: syncEnabled,
+    currentRev: syncSnapshot?.rev ?? "",
+    getSnapshot: () => syncSnapshot,
+    onIncomingSnapshot: applyIncomingSnapshot,
+  });
+
 
   const [themesOpen, setThemesOpen] = useState(false);
   const [themeId, setThemeId] = useState("volna");
@@ -428,7 +511,7 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [v, sp, rep, sh, eqs, acc, mut, tid, tEnd] = await Promise.all([
+        const [v, sp, rep, sh, eqs, acc, mut, tid, tEnd, osWp, osBlur, lp] = await Promise.all([
           loadMeta<number>("volume"),
           loadMeta<number>("speed"),
           loadMeta<RepeatMode>("repeat"),
@@ -438,6 +521,9 @@ export default function App() {
           loadMeta<boolean>("muted"),
           loadMeta<string>("currentId"),
           loadMeta<number>("timerEnd"),
+          loadMeta<WallpaperTarget>("osWallpaperTarget"),
+          loadMeta<WallpaperBlur>("osWallpaperBlur"),
+          loadMeta<boolean>("logPanel"),
         ]);
         if (v !== undefined) setVolume(v);
         if (sp !== undefined) setSpeed(sp);
@@ -448,10 +534,18 @@ export default function App() {
         if (mut !== undefined) setMuted(mut);
         if (tid) setCurrentId(tid);
         if (tEnd && tEnd > Date.now()) setTimerEnd(tEnd);
+        if (osWp) setOsWallpaperTarget(osWp);
+        if (osBlur) setOsWallpaperBlur(osBlur);
+        if (lp !== undefined) setLogPanel(lp);
       } catch {
         /* нет сохранённых настроек */
       }
     })();
+  }, []);
+
+  /* глобальные ошибки JS — в журнал (виден в плавающей панели на Android) */
+  useEffect(() => {
+    installGlobalErrorLogging();
   }, []);
 
   /* ---------- загрузка трека: папка (volna://) или файл из IndexedDB ---------- */
@@ -466,7 +560,7 @@ export default function App() {
     (async () => {
       let url: string;
       if (tr.path && window.volna) {
-        url = `volna://local/${encodeURIComponent(tr.path)}`;
+        url = isElectronVolna() ? `volna://local/${encodeURIComponent(tr.path)}` : trackSrc(tr.path);
       } else {
         const blob = await getStoredBlob(tr.id);
         if (cancelled || !blob) return;
@@ -503,6 +597,50 @@ export default function App() {
       cancelled = true;
     };
   }, [currentTrack?.id]);
+
+  /* ---------- медиа-сессия: фон + экран блокировки (мобильные) ---------- */
+  useMediaSession({
+    track: currentTrack,
+    playing: isPlaying,
+    onPlay: () => {
+      if (currentTrack) togglePlay();
+    },
+    onPause: () => {
+      if (currentTrack) togglePlay();
+    },
+    onNext: () => next(),
+    onPrev: () => prev(),
+    onSeek: seekTo,
+  });
+
+  /* ---------- обои из обложки трека (Android, MusWall-style) ---------- */
+  useCoverWallpaper({ track: currentTrack, playing: isPlaying, target: osWallpaperTarget, blur: osWallpaperBlur });
+  useEffect(() => {
+    saveMeta("osWallpaperTarget", osWallpaperTarget).catch(() => undefined);
+  }, [osWallpaperTarget]);
+  useEffect(() => {
+    saveMeta("logPanel", logPanel).catch(() => undefined);
+  }, [logPanel]);
+  useEffect(() => {
+    saveMeta("osWallpaperBlur", osWallpaperBlur).catch(() => undefined);
+  }, [osWallpaperBlur]);
+
+  /* ---------- версия сборки (ПК: Electron IPC, телефон: плагин, веб: define) ---------- */
+  useEffect(() => {
+    let v = BUILD_VERSION;
+    window.volna
+      ?.getAppVersion?.()
+      .then((r) => {
+        if (r?.version) v = r.version;
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (v) {
+          setAppVersion(v);
+          setSyncAppVersion(v);
+        }
+      });
+  }, []);
 
   /* ---------- применение настроек к движку ---------- */
   useEffect(() => {
@@ -752,6 +890,11 @@ export default function App() {
 
   const handlePickFolder = useCallback(async () => {
     if (window.volna) {
+      // на мобильных — встроенный пикер папок (пользователь выбирает сам)
+      if (isMobilePlatform()) {
+        setFolderPickerOpen(true);
+        return;
+      }
       const res = await window.volna.pickFolder();
       if (res) {
         const r = await applyScanLocal(res);
@@ -766,6 +909,24 @@ export default function App() {
     }
     folderInputRef.current?.click();
   }, [applyScanLocal, pushToast, t]);
+
+  const handleFolderPicked = useCallback(
+    async (path: string) => {
+      const res = await window.volna?.scanFolder(path);
+      if (!res) {
+        pushToast("⚠️", t("toastNoAudioFiles"));
+        return;
+      }
+      const r = await applyScanLocal(res);
+      pushToast(
+        "📁",
+        r.added > 0 ? t("toastFolderAdded", { name: res.name, n: r.added }) : t("toastFolderSynced", { name: res.name })
+      );
+      if (r.truncated) pushToast("⚠️", t("toastScanTruncated"));
+      setSidebarOpen(false);
+    },
+    [applyScanLocal, pushToast, t]
+  );
 
   /* Скачивание по ссылке: нужна единая папка, куда всё сохраняется */
   const handleOpenDownload = useCallback(() => {
@@ -782,6 +943,27 @@ export default function App() {
     pushToast("🔄", r.added > 0 ? t("toastRescanNew", { n: r.added }) : t("toastRescanNone"));
     if (r.truncated) pushToast("⚠️", t("toastScanTruncated"));
   }, [rescanFolder, pushToast, t]);
+
+  /* Открыть TCP 51789 в брандмауэре Windows (UAC-запрос) */
+  const handleSyncOpenPort = useCallback(async () => {
+    try {
+      const ok = await window.volna?.syncOpenPort?.();
+      pushToast(ok ? "🔓" : "⚠️", ok ? t("toastPortOpened") : t("toastPortFailed"));
+    } catch {
+      pushToast("⚠️", t("toastPortFailed"));
+    }
+  }, [pushToast, t]);
+
+  /* «Вся музыка на устройстве»: треки из MediaStore (Android) */
+  const handleAllAudioPicked = useCallback(
+    async (list: DeviceAudioTrack[]) => {
+      const n = await addDeviceAudio(list);
+      if (n > 0) pushToast("🎵", t("toastAddedN", { n }));
+      else pushToast("✅", t("toastAlreadyInLibrary"));
+      setSidebarOpen(false);
+    },
+    [addDeviceAudio, pushToast, t]
+  );
 
   const handleRemove = useCallback(
     (id: string) => {
@@ -1387,11 +1569,20 @@ export default function App() {
           </>
         )}
 
-        <div className="relative z-10 grid h-full min-h-0 grid-rows-[1fr_auto] lg:grid-cols-[248px_1fr]">
+        <div
+          ref={swipeRef}
+          className="relative z-10 grid h-full min-h-0 grid-rows-[1fr_auto] lg:grid-cols-[248px_1fr]"
+        >
       {/* затемнение под выдвижным меню */}
       {sidebarOpen && (
-        <div className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm lg:hidden" onClick={() => setSidebarOpen(false)} />
+        <div className="volna-fade fixed inset-0 z-30 bg-black/60 backdrop-blur-sm lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
+
+      {/* баннер найденного устройства (сетевая синхронизация) */}
+      <SyncBanner candidate={sync.candidate} onConnect={(c) => void sync.connectCandidate(c)} onDismiss={sync.dismissCandidate} />
+
+      {/* плавающий журнал (Android) — живая диагностика на устройстве */}
+      {logPanel && isMobilePlatform() && <LogBubble />}
 
       <Sidebar
         open={sidebarOpen}
@@ -1419,10 +1610,39 @@ export default function App() {
         onCreatePlaylist={pl.create}
         onSelectPlaylist={pl.setActiveId}
         onDeletePlaylist={pl.remove}
+        sync={
+          syncEnabled
+            ? {
+                device: sync.device,
+                peers: sync.peers.map((x) => ({
+                  deviceId: x.deviceId,
+                  name: x.name,
+                  type: x.type,
+                  ip: x.ip,
+                  online: sync.isOnline(x),
+                })),
+                scanning: sync.scanning,
+                scanStatus: sync.scanStatus,
+                localIp: sync.localIp,
+                serverRunning: sync.serverRunning,
+                serverPort: sync.serverPort,
+                connectError: sync.connectError,
+                onScanNow: () => void sync.scanNow(),
+                onRename: () => {
+                  const name = window.prompt(t("syncRename"), sync.device.name);
+                  if (name !== null && name.trim()) sync.renameDevice(name);
+                },
+                onDisconnect: sync.disconnectPeer,
+                onConnectByIp: (ip: string) => sync.connectByIp(ip),
+                onOpenPort: () => void handleSyncOpenPort(),
+                version: appVersion,
+              }
+            : undefined
+        }
       />
 
       <main className="row-start-1 flex min-h-0 flex-col lg:col-start-2">
-        <header className="flex flex-wrap items-center gap-2 px-4 pb-4 pt-4 sm:gap-3 sm:px-6 sm:pt-5">
+        <header className="flex flex-wrap items-center gap-2 px-3 pb-3 pt-3 sm:gap-3 sm:px-6 sm:pb-4 sm:pt-5">
           <button
             onClick={() => setSidebarOpen(true)}
             className="rounded-xl bg-white/[0.06] p-2.5 text-white/60 transition-all hover:bg-white/[0.12] hover:text-white lg:hidden"
@@ -1431,8 +1651,8 @@ export default function App() {
             <IconMenu className="h-5 w-5" />
           </button>
           <div className="min-w-0 flex-1">
-            <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-white/35">{greet}</div>
-            <h1 className="font-display mt-1 flex items-center gap-3 truncate text-xl font-bold sm:text-2xl">
+            <div className="hidden text-[11px] font-bold uppercase tracking-[0.22em] text-white/35 sm:block">{greet}</div>
+            <h1 className="font-display flex items-center gap-3 truncate text-xl font-bold sm:mt-1 sm:text-2xl">
               <span className="truncate">
                 {albumGroup
                   ? albumGroup.name
@@ -1523,14 +1743,14 @@ export default function App() {
               </>
             )}
           </div>
-          <div className="relative">
+          <div className="relative order-last w-full sm:order-none sm:w-auto">
             <IconSearch className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30" />
             <input
               ref={searchRef}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t("searchPlaceholder")}
-              className="glass w-32 rounded-full py-2.5 pl-10 pr-3 text-sm font-medium text-white placeholder-white/30 outline-none transition-all focus:w-40 focus:border-[var(--accent)]/50 focus:bg-white/[0.07] sm:w-48 sm:focus:w-64 lg:w-60 lg:focus:w-80"
+              className="glass w-full rounded-full py-2.5 pl-10 pr-3 text-sm font-medium text-white placeholder-white/30 outline-none transition-all focus:border-[var(--accent)]/50 focus:bg-white/[0.07] sm:w-48 sm:focus:w-64 lg:w-60 lg:focus:w-80"
             />
           </div>
           <button
@@ -1566,6 +1786,15 @@ export default function App() {
               onPlay={playTrack}
               onFav={toggleFav}
               onRemove={handleRemove}
+        onQueue={queueTrack}
+        onRemoveFromPlaylist={
+          activePlaylist
+            ? (tr) => {
+                pl.removeTrack(activePlaylist.id, tr.id);
+                pushToast("🗑", t("removeFromPlaylist"));
+              }
+            : null
+        }
               onReorder={(from, to) => {
                 const list = albumGroup ? albumGroup.tracks : visibleTracks;
                 if (activePlaylist) {
@@ -1621,6 +1850,7 @@ export default function App() {
         onRemoveTrack={(t) => handleRemove(t.id)}
         onDeleteDevice={(t) => setConfirmDel(t)}
         onOpenMini={openMini}
+        onOpenNowPlaying={() => setNowPlayingOpen(true)}
         queueCount={queueIds.length}
         onOpenQueue={() => setQueueOpen(true)}
         onQueueTrack={() => {
@@ -1692,11 +1922,25 @@ export default function App() {
           onOpenThemes={() => setThemesOpen(true)}
           onOpenEq={() => setModal((m) => ({ ...m, eq: true }))}
           onOpenCredits={() => setCreditsOpen(true)}
+          version={appVersion}
+          osWallpaperTarget={osWallpaperTarget}
+          onOsWallpaperTarget={setOsWallpaperTarget}
+          osWallpaperBlur={osWallpaperBlur}
+          onOsWallpaperBlur={setOsWallpaperBlur}
+          logPanel={logPanel}
+          onLogPanel={setLogPanel}
           onClose={() => setSettingsOpen(false)}
         />
       )}
 
       {creditsOpen && <CreditsModal onClose={() => setCreditsOpen(false)} />}
+
+      <FolderPicker
+        open={folderPickerOpen}
+        onClose={() => setFolderPickerOpen(false)}
+        onPick={(p) => void handleFolderPicked(p)}
+        onPickAllAudio={(list) => void handleAllAudioPicked(list)}
+      />
 
       {dlOpen && (
         <DownloadModal
@@ -1802,6 +2046,30 @@ export default function App() {
           winBgOpacity={winBgOpacity}
           onWinBgOpacity={handleWinBgOpacity}
           onClose={() => setThemesOpen(false)}
+        />
+      )}
+
+      {nowPlayingOpen && currentTrack && (
+        <NowPlayingSheet
+          track={currentTrack}
+          isPlaying={isPlaying}
+          time={time}
+          duration={duration}
+          onToggle={togglePlay}
+          onNext={next}
+          onPrev={prev}
+          onSeek={seekTo}
+          onFav={toggleFav}
+          shuffle={shuffle}
+          onShuffle={() => setShuffle((s) => !s)}
+          repeat={repeat}
+          onRepeat={cycleRepeat}
+          queueCount={queueIds.length}
+          onOpenQueue={() => {
+            setNowPlayingOpen(false);
+            setQueueOpen(true);
+          }}
+          onClose={() => setNowPlayingOpen(false)}
         />
       )}
 

@@ -1,6 +1,9 @@
 import { useRef, useState } from "react";
 import { formatTotal } from "../lib/format";
+import { isMobilePlatform } from "../lib/platform";
 import { countText, useI18n } from "../lib/i18n";
+import SyncSection, { type SyncPeerView } from "./SyncSection";
+import type { ScanStatus, SyncDevice } from "../lib/sync";
 import {
   IconClock,
   IconDownload,
@@ -42,6 +45,24 @@ interface Props {
   onCreatePlaylist: (name: string) => void;
   onSelectPlaylist: (id: string) => void;
   onDeletePlaylist: (id: string) => void;
+  /** сетевая синхронизация (отсутствует в веб-версии) */
+  sync?: {
+    device: SyncDevice;
+    peers: SyncPeerView[];
+    scanning: boolean;
+    scanStatus?: ScanStatus;
+    localIp: string | null;
+    serverRunning: boolean;
+    serverPort: number | null;
+    connectError: "bad-ip" | "timeout" | "unreachable" | null;
+    onScanNow: () => void;
+    onRename: () => void;
+    onDisconnect: (deviceId: string) => void;
+    onConnectByIp: (ip: string) => Promise<boolean>;
+    onOpenPort: () => void;
+    /** версия сборки — подпись у имени устройства */
+    version?: string;
+  };
 }
 
 export default function Sidebar(p: Props) {
@@ -85,7 +106,7 @@ export default function Sidebar(p: Props) {
 
   return (
     <aside
-      className={`bg-side bd-line fixed inset-y-0 left-0 z-40 flex min-h-0 w-[248px] flex-col overflow-y-auto border-r px-4 py-5 backdrop-blur-xl scroll-thin transition-transform duration-300 lg:static lg:z-auto lg:translate-x-0 lg:bg-transparent lg:backdrop-blur-none ${
+      className={`bg-side bd-line volna-fade fixed inset-y-0 left-0 z-40 flex min-h-0 w-[248px] flex-col overflow-y-auto border-r px-4 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-4 backdrop-blur-xl scroll-thin shadow-2xl transition-transform duration-300 sm:pt-5 lg:static lg:z-auto lg:translate-x-0 lg:rounded-none lg:bg-transparent lg:pb-5 lg:shadow-none lg:backdrop-blur-none ${
         p.open ? "translate-x-0" : "-translate-x-full"
       }`}
     >
@@ -265,14 +286,35 @@ export default function Sidebar(p: Props) {
               <IconRefresh className="h-3 w-3" />
               {t("sync")}
             </button>
-            <button
-              onClick={p.onOpenFolder}
-              className="flex-1 rounded-lg bg-white/[0.07] py-1.5 text-[11px] font-bold text-white/70 transition-colors hover:bg-white/[0.12] hover:text-white"
-            >
-              {t("inExplorer")}
-            </button>
+            {!isMobilePlatform() && (
+              <button
+                onClick={p.onOpenFolder}
+                className="flex-1 rounded-lg bg-white/[0.07] py-1.5 text-[11px] font-bold text-white/70 transition-colors hover:bg-white/[0.12] hover:text-white"
+              >
+                {t("inExplorer")}
+              </button>
+            )}
           </div>
         </div>
+      )}
+
+      {p.sync && (
+        <SyncSection
+          device={p.sync.device}
+          peers={p.sync.peers}
+          scanning={p.sync.scanning}
+          scanStatus={p.sync.scanStatus}
+          localIp={p.sync.localIp}
+          serverRunning={p.sync.serverRunning}
+          serverPort={p.sync.serverPort}
+          connectError={p.sync.connectError}
+          onScanNow={p.sync.onScanNow}
+          onRename={p.sync.onRename}
+          onDisconnect={p.sync.onDisconnect}
+          onConnectByIp={p.sync.onConnectByIp}
+          onOpenPort={p.sync.onOpenPort}
+          version={p.sync.version}
+        />
       )}
 
       <div className="glass sidebar-stats mt-4 rounded-2xl p-4">

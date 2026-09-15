@@ -28,6 +28,29 @@ export function parseFileName(name: string): { title: string; artist: string } {
   return { artist: "", title: cleaned || base };
 }
 
+/**
+ * Сводит теги файла и имя файла к паре «исполнитель — название».
+ * Тег заголовка вида «Misery - pupsies slowed» — это обычно «исполнитель -
+ * название», а не настоящее название. В этом случае имя файла надёжнее:
+ * режем по разделителю и берём тег исполнителя только если в имени его нет.
+ */
+export function resolveMeta(
+  fileName: string,
+  tags?: { title?: string | null; artist?: string | null } | undefined
+): { title: string; artist: string } {
+  const parsed = parseFileName(fileName);
+  const tagTitle = tags?.title?.trim() ?? "";
+  const tagArtist = tags?.artist?.trim() ?? "";
+  if (tagTitle) {
+    const m = tagTitle.match(/^(.+?)\s+[-–—~]\s+(.+)$/);
+    if (m && m[1].length > 1 && m[2].trim()) {
+      return { artist: parsed.artist || tagArtist || m[1].trim(), title: m[2].trim() };
+    }
+    return { title: tagTitle, artist: tagArtist || parsed.artist };
+  }
+  return { title: parsed.title, artist: tagArtist || parsed.artist };
+}
+
 export function huePairFromId(id: string): [number, number] {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;

@@ -37,6 +37,13 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* ---------- телефон: компактный масштаб всего интерфейса ---------- */
+@media (pointer: coarse) and (max-width: 480px) {
+  html {
+    font-size: 13.5px;
+  }
+}
+
 ::selection {
   background: color-mix(in srgb, var(--accent) 40%, transparent);
 }
@@ -184,6 +191,58 @@ input[type="range"].slider::-moz-range-thumb {
 }
 input[type="range"].slider::-moz-range-track {
   background: transparent;
+}
+
+/* ---------- тач-экраны: крупная зона касания таймлайна ---------- */
+@media (pointer: coarse) {
+  input[type="range"].slider {
+    height: 32px;
+    border-radius: 16px;
+    background:
+      linear-gradient(
+        to right,
+        var(--accent) var(--fill, 50%),
+        var(--track) var(--fill, 50%)
+      )
+      no-repeat center / 100% 6px;
+  }
+  input[type="range"].slider::-webkit-slider-thumb {
+    width: 24px;
+    height: 24px;
+  }
+  input[type="range"].slider::-moz-range-thumb {
+    width: 24px;
+    height: 24px;
+  }
+}
+
+/* ---------- защита от растягивания UI за пределы экрана ---------- */
+html,
+body,
+#root {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
+/* range-инпуты не должны раздувать flex-строки (min-width:auto у формы запрещаем) */
+input[type="range"] {
+  min-width: 0;
+}
+
+/* ---------- всплывающее меню плеера (нижняя панель на мобильных) ---------- */
+@keyframes sheet-up {
+  from { transform: translateY(103%); }
+  to { transform: translateY(0); }
+}
+.volna-sheet {
+  animation: sheet-up 0.32s cubic-bezier(0.32, 0.72, 0.33, 1);
+}
+@keyframes volna-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.volna-fade {
+  animation: volna-fade 0.22s ease-out;
 }
 
 /* ---------- вертикальный слайдер эквалайзера ---------- */

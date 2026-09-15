@@ -2,8 +2,10 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { RepeatMode, Track } from "../types";
 import { formatTime } from "../lib/format";
 import { useI18n } from "../lib/i18n";
+import { isMobilePlatform } from "../lib/platform";
 import {
   IconClock,
+  IconDots,
   IconFolder,
   IconHeart,
   IconHeartFilled,
@@ -55,6 +57,8 @@ interface Props {
   onRemoveTrack: (t: Track) => void;
   onDeleteDevice: (t: Track) => void;
   onOpenMini: () => void;
+  /** открыть большую шторку «Сейчас играет» (тач-жесты) */
+  onOpenNowPlaying: () => void;
   /** очередь */
   queueCount: number;
   onOpenQueue: () => void;
@@ -76,8 +80,10 @@ const gainPresetBtn =
 
 export default function PlayerBar(p: Props) {
   const { t: tr } = useI18n();
+  const mobile = isMobilePlatform();
   const [menuOpen, setMenuOpen] = useState(false);
   const [plsOpen, setPlsOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [volHover, setVolHover] = useState(false);
   const volTimer = useRef<number | null>(null);
   useEffect(() => {
@@ -102,18 +108,46 @@ export default function PlayerBar(p: Props) {
 
   const lowerGain = (delta: number) => p.onGain(Math.max(0, p.gain - delta));
 
+  /* свайп влево/вправо по плееру на таче — следующий/предыдущий трек */
+  const barTouch = useRef<{ x: number; y: number } | null>(null);
+  const onBarTouchStart = (e: React.TouchEvent) => {
+    // свайп по слайдеру громкости/таймлайну не переключает треки
+    if ((e.target as HTMLElement).closest("input")) return;
+    const th = e.touches[0];
+    barTouch.current = { x: th.clientX, y: th.clientY };
+  };
+  const onBarTouchEnd = (e: React.TouchEvent) => {
+    const st = barTouch.current;
+    barTouch.current = null;
+    if (!st || !mobile) return;
+    const th = e.changedTouches[0];
+    const dx = th.clientX - st.x;
+    const dy = th.clientY - st.y;
+    if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      if (dx < 0) p.onNext();
+      else p.onPrev();
+    }
+  };
+
   return (
     <footer
-      className="player-bar bd-line col-start-1 row-start-2 flex max-h-[104px] shrink-0 items-center gap-2 border-t px-3 py-2.5 backdrop-blur-2xl sm:gap-4 sm:px-5 sm:py-3 lg:col-end-3"
+      onTouchStart={onBarTouchStart}
+      onTouchEnd={onBarTouchEnd}
+      className="player-bar bd-line col-start-1 row-start-2 flex max-w-full shrink-0 flex-col gap-1.5 border-t px-3 pb-[calc(0.6rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur-2xl sm:max-h-[104px] sm:flex-row sm:items-center sm:gap-4 sm:px-5 sm:py-3 lg:col-end-3"
       style={{ background: "color-mix(in srgb, var(--bg-base) 50%, transparent)" }}
     >
       {/* Трек — клик по названию открывает меню трека */}
-      <div className="relative flex w-[min(30vw,280px)] min-w-0 shrink-0 items-center gap-2 sm:w-[280px] sm:gap-3">
+      <div className="relative flex w-full min-w-0 items-center gap-1 sm:w-[280px] sm:shrink-0 sm:gap-3">
         <button
-          onClick={() => p.track && setMenuOpen((o) => !o)}
+          onClick={() => {
+            if (!p.track) return;
+            // на таче тап по треку открывает большую шторку «Сейчас играет»
+            if (mobile) p.onOpenNowPlaying();
+            else setMenuOpen((o) => !o);
+          }}
           disabled={!p.track}
           className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl p-1 text-left transition-colors hover:bg-white/[0.05] disabled:cursor-default disabled:hover:bg-transparent sm:gap-3"
-          title={tr("trackMenu")}
+          title={mobile ? undefined : tr("trackMenu")}
         >
           <TrackCover
             track={t ?? FALLBACK}
@@ -131,12 +165,35 @@ export default function PlayerBar(p: Props) {
         </button>
         <button
           onClick={() => t && p.onFav(t.id)}
-          className={`hidden rounded-lg p-1.5 transition-all hover:scale-110 sm:block ${
+          className={`rounded-lg p-1.5 transition-all hover:scale-110 ${
             t?.fav ? "text-[var(--accent)]" : "text-white/30 hover:text-white"
           }`}
           aria-label={tr("favAdd")}
         >
           {t?.fav ? <IconHeartFilled className="h-4 w-4" /> : <IconHeart className="h-4 w-4" />}
+        </button>
+
+        {/* Очередь (мобильный) */}
+        <button
+          onClick={p.onOpenQueue}
+          className={`${ctrlBtn} relative sm:hidden ${p.queueCount > 0 ? "text-[var(--accent)]" : ""}`}
+          aria-label={tr("queueBtn")}
+        >
+          <IconList className="h-[18px] w-[18px]" />
+          {p.queueCount > 0 && (
+            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--accent)] px-1 text-[9px] font-extrabold text-white">
+              {p.queueCount}
+            </span>
+          )}
+        </button>
+
+        {/* Ещё (мобильное всплывающее меню) */}
+        <button
+          onClick={() => setMoreOpen(true)}
+          className={`${ctrlBtn} sm:hidden`}
+          aria-label={tr("settings")}
+        >
+          <IconDots className="h-[18px] w-[18px]" />
         </button>
 
         {/* ======= МЕНЮ ТРЕКА ======= */}
@@ -334,37 +391,41 @@ export default function PlayerBar(p: Props) {
             {p.repeat === "one" ? <IconRepeatOne className="h-[18px] w-[18px]" /> : <IconRepeat className="h-[18px] w-[18px]" />}
           </button>
         </div>
-        <div className="flex w-full max-w-[640px] items-center gap-2 sm:gap-3">
-          <span className="w-9 text-right text-[10px] font-semibold tabular-nums text-white/40 sm:w-11 sm:text-[11px]">
+        <div className="hidden w-full max-w-[640px] items-center gap-2 sm:flex sm:gap-3">
+          <span className="w-9 shrink-0 text-right text-[10px] font-semibold tabular-nums text-white/40 sm:w-11 sm:text-[11px]">
             {formatTime(p.time)}
           </span>
-          <SeekBar value={p.duration > 0 ? p.time / p.duration : 0} onChange={p.onSeek} />
-          <span className="w-9 text-[10px] font-semibold tabular-nums text-white/40 sm:w-11 sm:text-[11px]">
+          <div className="min-w-0 flex-1">
+            <SeekBar value={p.duration > 0 ? p.time / p.duration : 0} onChange={p.onSeek} />
+          </div>
+          <span className="w-9 shrink-0 text-[10px] font-semibold tabular-nums text-white/40 sm:w-11 sm:text-[11px]">
             -{formatTime(Math.max(0, p.duration - p.time))}
           </span>
         </div>
       </div>
 
       {/* Право */}
-      <div className="flex w-[min(30vw,280px)] shrink-0 items-center justify-end gap-0.5 sm:w-auto sm:gap-1 lg:w-[280px]">
+      <div className="hidden w-[min(30vw,280px)] shrink-0 items-center justify-end gap-0.5 sm:flex sm:w-auto sm:gap-1 lg:w-[280px]">
         <button onClick={p.onSpeed} className={`${ctrlBtn} hidden text-xs font-extrabold tracking-wide lg:block`} title={tr("speedTitle")}>
           {p.speed}×
         </button>
 
-        {/* Мини-плеер */}
-        <button
-          onClick={p.onOpenMini}
-          className={`${ctrlBtn} ${window.volna ? "" : "opacity-40"}`}
-          title={window.volna ? tr("miniPlayer") : tr("miniPlayerOnlyWindows")}
-          aria-label={tr("miniPlayer")}
-        >
-          <IconMini className="h-[18px] w-[18px]" />
-        </button>
+        {/* Мини-плеер — только десктоп (на телефоне не имеет смысла) */}
+        {!mobile && (
+          <button
+            onClick={p.onOpenMini}
+            className={`${ctrlBtn} ${window.volna ? "" : "opacity-40"}`}
+            title={window.volna ? tr("miniPlayer") : tr("miniPlayerOnlyWindows")}
+            aria-label={tr("miniPlayer")}
+          >
+            <IconMini className="h-[18px] w-[18px]" />
+          </button>
+        )}
 
         {/* Очередь */}
         <button
           onClick={p.onOpenQueue}
-          className={`${ctrlBtn} relative hidden sm:block ${p.queueCount > 0 ? "text-[var(--accent)]" : ""}`}
+          className={`${ctrlBtn} relative ${mobile ? "" : "hidden sm:block"} ${p.queueCount > 0 ? "text-[var(--accent)]" : ""}`}
           aria-label={tr("queueBtn")}
           title={tr("queueBtn")}
         >
@@ -376,7 +437,8 @@ export default function PlayerBar(p: Props) {
           )}
         </button>
 
-        {/* ======= ВЕРТИКАЛЬНАЯ ГРОМКОСТЬ (при наведении) ======= */}
+        {/* ======= ВЕРТИКАЛЬНАЯ ГРОМКОСТЬ (при наведении, только десктоп) ======= */}
+        {!mobile && (
         <div
           className="relative flex items-center"
           onMouseEnter={showVol}
@@ -444,6 +506,7 @@ export default function PlayerBar(p: Props) {
             </div>
           )}
         </div>
+        )}
 
         <div className="mx-1 hidden h-6 w-px bg-white/10 sm:block" />
         <button onClick={p.onOpenEq} className={`${ctrlBtn} hidden md:block ${p.eqOn ? "text-[var(--accent)]" : ""}`} aria-label={tr("equalizer")} title={tr("equalizer")}>
@@ -453,6 +516,131 @@ export default function PlayerBar(p: Props) {
           <IconClock className="h-[18px] w-[18px]" />
         </button>
       </div>
+
+      {/* Мобильный таймлайн — во всю ширину, у нижнего края */}
+      <div className="flex w-full items-center gap-2 pb-1 pt-0.5 sm:hidden">
+        <span className="w-9 shrink-0 text-right text-[10px] font-semibold tabular-nums text-white/40">
+          {formatTime(p.time)}
+        </span>
+        <div className="min-w-0 flex-1">
+          <SeekBar value={p.duration > 0 ? p.time / p.duration : 0} onChange={p.onSeek} />
+        </div>
+        <span className="w-9 shrink-0 text-[10px] font-semibold tabular-nums text-white/40">
+          -{formatTime(Math.max(0, p.duration - p.time))}
+        </span>
+      </div>
+
+      {/* ======= МОБИЛЬНОЕ ВСПЛЫВАЮЩЕЕ МЕНЮ (нижняя панель) ======= */}
+      {moreOpen && (
+        <>
+          <div className="volna-fade fixed inset-0 z-40 bg-black/60 backdrop-blur-sm sm:hidden" onClick={() => setMoreOpen(false)} />
+          <div
+            className="volna-sheet bg-panel fixed inset-x-0 bottom-0 z-50 rounded-t-3xl border-t border-white/10 p-4 pb-[calc(1.1rem+env(safe-area-inset-bottom))] shadow-2xl backdrop-blur-2xl sm:hidden"
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-white/15" />
+            {t && (
+              <div className="flex items-center gap-3">
+                <TrackCover track={t} className="h-11 w-11 rounded-xl text-base" />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-bold text-white">{t.title}</div>
+                  <div className="truncate text-xs text-white/40">{t.artist || tr("unknownArtist")}</div>
+                </div>
+                <button
+                  onClick={() => setMoreOpen(false)}
+                  className="rounded-lg p-2 text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white"
+                  aria-label={tr("close")}
+                >
+                  <IconX className="h-5 w-5" />
+                </button>
+              </div>
+            )}
+
+            {/* быстрые действия */}
+            <div className="mt-3 grid grid-cols-5 gap-1.5">
+              <button
+                onClick={p.onSpeed}
+                className="flex flex-col items-center gap-1 rounded-2xl bg-white/[0.06] py-2.5 text-[10px] font-bold text-white/60 transition-colors hover:bg-white/[0.12] hover:text-white active:scale-95"
+              >
+                <span className="text-sm font-extrabold text-white">{p.speed}×</span>
+                {tr("speedTitle")}
+              </button>
+              <button
+                onClick={p.onOpenEq}
+                className={`flex flex-col items-center gap-1 rounded-2xl bg-white/[0.06] py-2.5 text-[10px] font-bold transition-colors hover:bg-white/[0.12] active:scale-95 ${p.eqOn ? "text-[var(--accent)]" : "text-white/60"}`}
+              >
+                <IconSliders className="h-5 w-5" />
+                {tr("equalizer")}
+              </button>
+              <button
+                onClick={p.onOpenTimer}
+                className={`flex flex-col items-center gap-1 rounded-2xl bg-white/[0.06] py-2.5 text-[10px] font-bold transition-colors hover:bg-white/[0.12] active:scale-95 ${p.timerLeft !== null ? "text-[var(--accent)]" : "text-white/60"}`}
+              >
+                <IconClock className="h-5 w-5" />
+                {tr("sleepTimer")}
+              </button>
+              <button
+                onClick={p.onShuffle}
+                className={`flex flex-col items-center gap-1 rounded-2xl bg-white/[0.06] py-2.5 text-[10px] font-bold transition-colors hover:bg-white/[0.12] active:scale-95 ${p.shuffle ? "text-[var(--accent)]" : "text-white/60"}`}
+              >
+                {p.shuffle ? <IconShuffle className="h-5 w-5" /> : <IconOrdered className="h-5 w-5" />}
+                {tr("shuffleShort")}
+              </button>
+              <button
+                onClick={p.onRepeat}
+                className={`flex flex-col items-center gap-1 rounded-2xl bg-white/[0.06] py-2.5 text-[10px] font-bold transition-colors hover:bg-white/[0.12] active:scale-95 ${p.repeat !== "off" ? "text-[var(--accent)]" : "text-white/60"}`}
+              >
+                {p.repeat === "one" ? <IconRepeatOne className="h-5 w-5" /> : <IconRepeat className="h-5 w-5" />}
+                {tr("repeatShort")}
+              </button>
+            </div>
+
+            {/* громкость */}
+            <div className="mt-3 space-y-2.5 rounded-2xl bg-white/[0.04] p-3">
+              <div>
+                <div className="flex items-center justify-between text-[11px] font-bold text-white/40">
+                  <span>{tr("masterVolume")}</span>
+                  <span className="text-[var(--accent)]">{volPct}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={volPct}
+                  onChange={(e) => p.onVolume(Number(e.target.value) / 100)}
+                  className="modal-slider mt-1"
+                  style={{ "--fill": `${volPct}%` } as CSSProperties}
+                  aria-label={tr("masterVolume")}
+                />
+              </div>
+              <div>
+                <div className="flex items-center justify-between text-[11px] font-bold text-white/40">
+                  <span>{tr("trackVolume")}</span>
+                  <span className={p.gain !== 1 ? "text-[var(--accent)]" : "text-white/40"}>{gainPct}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={gainPct}
+                  onChange={(e) => p.onGain(Number(e.target.value) / 100)}
+                  className="modal-slider mt-1"
+                  style={{ "--fill": `${gainPct}%` } as CSSProperties}
+                  aria-label={tr("trackVolume")}
+                />
+              </div>
+              {p.gain !== 1 && (
+                <button
+                  onClick={() => p.onGain(1)}
+                  className="w-full rounded-lg bg-white/[0.07] py-1.5 text-[11px] font-bold text-white/50 transition-colors hover:bg-white/[0.14] hover:text-white"
+                >
+                  {tr("resetTrackVolume")}
+                </button>
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </footer>
   );
 }
