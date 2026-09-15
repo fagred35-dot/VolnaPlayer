@@ -208,26 +208,33 @@ export function installMobileBridge(): void {
     // скачивание музыки по ссылке — встроенный yt-dlp (youtubedl-android)
     dlStart: (url, destDir) =>
       new Promise((resolve) => {
+        let done = false;
         let offDone: { remove: () => void } | null = null;
         let offError: { remove: () => void } | null = null;
-        const finish = () => {
+        const finish = (ok: boolean) => {
+          if (done) return;
+          done = true;
           offDone?.remove();
           offError?.remove();
-          resolve({ ok: true });
+          resolve({ ok });
         };
-        void VolnaYtdl.addListener("done", () => finish()).then((h) => {
-          if (offDone === null) offDone = h;
-          else h.remove();
-        });
-        void VolnaYtdl.addListener("error", () => finish()).then((h) => {
-          if (offError === null) offError = h;
-          else h.remove();
-        });
-        VolnaYtdl.start({ url, destDir: destDir ?? "" }).catch(() => {
-          offDone?.remove();
-          offError?.remove();
-          resolve({ ok: false });
-        });
+        // слушатели вешаются ДО start() — иначе быстрое событие «done»
+        // может уйти в пустоту и очередь загрузок зависнет до перезапуска
+        void (async () => {
+          try {
+            const [d, e] = await Promise.all([VolnaYtdl.addListener("done", () => finish(true)), VolnaYtdl.addListener("error", () => finish(false))]);
+            if (done) {
+              d.remove();
+              e.remove();
+              return;
+            }
+            offDone = d;
+            offError = e;
+            await VolnaYtdl.start({ url, destDir: destDir ?? "" });
+          } catch {
+            finish(false);
+          }
+        })();
       }),
     dlSearch: async (query) => {
       try {

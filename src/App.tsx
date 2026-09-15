@@ -529,7 +529,12 @@ export default function App() {
         if (sp !== undefined) setSpeed(sp);
         if (rep) setRepeat(rep);
         if (sh !== undefined) setShuffle(sh);
-        if (eqs) setEq(eqs);
+        if (eqs) {
+          setEq(eqs);
+          // применить сохранённый EQ к движку: до первого play() значения
+          // запоминаются в AudioEngine и встают в фильтры при построении графа
+          engine.setEQGains(eqs.enabled ? eqs.gains : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        }
         if (acc) setAccent(acc);
         if (mut !== undefined) setMuted(mut);
         if (tid) setCurrentId(tid);

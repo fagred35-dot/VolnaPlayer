@@ -10,6 +10,21 @@ const { startMcpServer } = require("./mcp-server");
 const syncServer = require("./sync-server");
 
 const AUDIO_RE = /\.(mp3|flac|wav|ogg|oga|m4a|aac|opus|webm|wma)$/i;
+
+/* Один экземпляр: два процесса гоняются за sync-snapshot.json, mcp.json и
+ * порта 51789. Второй экземпляр фокусирует первое окно и выходит. */
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    const w = BrowserWindow.getAllWindows().find((x) => !x.isDestroyed());
+    if (w) {
+      if (w.isMinimized()) w.restore();
+      w.focus();
+    }
+  });
+}
 const MIME = {
   ".mp3": "audio/mpeg",
   ".flac": "audio/flac",
@@ -204,10 +219,22 @@ function simpleHash(s) {
 }
 
 function isAllowed(p) {
-  const resolved = path.resolve(p).toLowerCase();
+  // realpath вместо resolve: symlink/junction внутри музыкальной папки
+  // не должен выводить за разрешённые корни
+  let real;
+  try {
+    real = fs.realpathSync(p).toLowerCase();
+  } catch {
+    real = path.resolve(p).toLowerCase();
+  }
   return [...roots].some((r) => {
-    const rr = path.resolve(r).toLowerCase();
-    return resolved === rr || resolved.startsWith(rr + path.sep);
+    let rr;
+    try {
+      rr = fs.realpathSync(r).toLowerCase();
+    } catch {
+      rr = path.resolve(r).toLowerCase();
+    }
+    return real === rr || real.startsWith(rr + path.sep);
   });
 }
 
@@ -379,8 +406,6 @@ async function downloadWithRetry(url, dest, win, onProgress, expectedSha, attemp
   throw lastErr;
 }
 
-let lastYtDlpUpdate = 0;
-
 async function ensureYtDlp(win) {
   if (!fs.existsSync(YTDLP())) {
     safeSend(win, "dl-progress", { percent: 0, status: "Скачиваю yt-dlp…" });
@@ -392,19 +417,9 @@ async function ensureYtDlp(win) {
       RUNTIMES.ytdlp.sha256
     );
   }
-  if (Date.now() - lastYtDlpUpdate > 24 * 60 * 60 * 1000) {
-    lastYtDlpUpdate = Date.now();
-    try {
-      const upd = spawn(YTDLP(), ["-U"], { windowsHide: true });
-      await new Promise((r) => {
-        upd.on("close", r);
-        upd.on("error", r);
-        setTimeout(r, 30000);
-      });
-    } catch {
-      /* не критично */
-    }
-  }
+  // Самообновление yt-dlp (-U) намеренно НЕ делаем: оно скачивает «latest»
+  // без проверки хэша и обесценивает пиннинг RUNTIMES. Обновление — только
+  // сменом версии+sha256 в манифесте с релизом приложения.
   // Проверяем, что бинарник живой; если нет — качаем пиннутую версию с проверкой хэша
   try {
     const ok = await new Promise((res) => {
@@ -722,7 +737,7 @@ function registerIpc() {
   });
 
   ipcMain.handle("open-folder", async (_e, p) => {
-    if (typeof p !== "string") return;
+    if (typeof p !== "string" || !isAllowed(p)) return;
     try {
       // папка — открываем её саму; файл — открываем папку и выделяем файл
       const st = await fsp.stat(p);
@@ -737,7 +752,12 @@ function registerIpc() {
   ipcMain.handle("delete-file", async (_e, p) => {
     try {
       if (typeof p !== "string" || !isAllowed(p)) return { ok: false, error: "Path is not allowed" };
-      await fsp.unlink(p);
+      // в корзину, а не навсегда (shell.trashItem недоступен для сетевых/особых путей — тогда unlink)
+      try {
+        await shell.trashItem(p);
+      } catch {
+        await fsp.unlink(p);
+      }
       // подчищаем пустые sidecar-файлы обложек не требуется — обложки в userData
       return { ok: true };
     } catch (err) {
@@ -825,6 +845,7 @@ function registerIpc() {
       safeSend(win, "dl-error", { message: "Уже идёт другое скачивание" });
       return { ok: false };
     }
+    let proc = null; // для catch: снять dlProc только если активен наш процесс
     try {
       await ensureYtDlp(win);
       // Куда скачивать: предпочтительно папка пользователя с музыкой (чтобы трек
@@ -884,7 +905,7 @@ function registerIpc() {
       const ff = await ensureFfmpeg(win);
       if (ff) args.unshift("--ffmpeg-location", path.dirname(ff));
 
-      const proc = spawn(YTDLP(), args, { cwd: target, windowsHide: true });
+      proc = spawn(YTDLP(), args, { cwd: target, windowsHide: true });
       dlProc = proc;
       let buf = "";
       let errTail = "";
@@ -905,7 +926,9 @@ function registerIpc() {
       });
 
       const code = await new Promise((res) => proc.on("close", res));
-      dlProc = null;
+      // снимаем отметку активного скачивания только если это всё ещё наш процесс:
+      // при отмене и быстром новом старте dlProc уже указывает на новый proc
+      if (dlProc === proc) dlProc = null;
       if (code !== 0) throw new Error("yt-dlp (код " + code + "): " + (errTail || "неизвестная ошибка"));
 
       const files = fs
@@ -939,7 +962,9 @@ function registerIpc() {
       safeSend(win, "dl-done", { path: abs, ...extra });
       return { ok: true };
     } catch (err) {
-      dlProc = null;
+      // снимаем отметку только если активен всё ещё наш процесс
+      // (после отмены dlProc уже null или принадлежит новому скачиванию)
+      if (dlProc === proc) dlProc = null;
       safeSend(win, "dl-error", { message: String((err && err.message) || err) });
       return { ok: false };
     }
@@ -1177,13 +1202,16 @@ function createWindow() {
   else win.loadFile(distIndex).catch(() => win.loadURL(devUrl));
 
   win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    // Только http/https: file:, ms-settings: и прочие протоколы ОС не должны
+    // запускаться из контента (теги файлов, обложки, yt-dlp)
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
     return { action: "deny" };
   });
   win.webContents.on("will-navigate", (e) => e.preventDefault());
 }
 
 app.whenReady().then(() => {
+  if (!gotLock) return; // второй экземпляр выходит, не поднимая серверов и окон
   loadRoots();
   windowPrefs = loadWindowPrefs();
   fs.mkdirSync(DOWNLOADS(), { recursive: true });

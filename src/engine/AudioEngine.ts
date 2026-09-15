@@ -16,6 +16,8 @@ export class AudioEngine {
   private loopOn = false;
   private gainNode: GainNode | null = null;
   private trackGain = 1;
+  /** gains, заданные до построения графа — применятся в ensureGraph */
+  private pendingEq: number[] | null = null;
 
   onTime: ((t: number) => void) | null = null;
   onEnded: (() => void) | null = null;
@@ -45,6 +47,11 @@ export class AudioEngine {
       b.gain.value = 0;
       return b;
     });
+    if (this.pendingEq) {
+      const g = this.pendingEq;
+      this.pendingEq = null;
+      this.setEQGains(g);
+    }
     this.analyserNode = ctx.createAnalyser();
     this.analyserNode.fftSize = 256;
     this.analyserNode.smoothingTimeConstant = 0.82;
@@ -101,6 +108,11 @@ export class AudioEngine {
   }
 
   setEQGains(gains: number[]): void {
+    if (!this.ctx) {
+      // граф строится лениво при первом play() — запоминаем и применим там
+      this.pendingEq = gains.slice();
+      return;
+    }
     this.eq.forEach((b, i) => {
       if (gains[i] !== undefined) b.gain.value = gains[i];
     });

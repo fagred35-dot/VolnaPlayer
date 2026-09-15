@@ -150,7 +150,7 @@ function asciiAt(a: Uint8Array, off: number, len: number): string {
 }
 
 /** ID3 unsynchronisation: FF 00 → FF */
-function deUnsync(a: Uint8Array): Uint8Array {
+function deUnsync(a: Uint8Array): Uint8Array<ArrayBuffer> {
   const out = new Uint8Array(a.length);
   let n = 0;
   for (let i = 0; i < a.length; i++) {
