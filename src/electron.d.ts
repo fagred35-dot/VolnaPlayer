@@ -106,6 +106,10 @@ export interface SyncServerStatus {
   port: number | null;
   localIp: string | null;
   deviceName: string;
+  /** тумблер синхронизации (opt-in) */
+  enabled?: boolean;
+  /** парный код устройства (12 hex) — показывает его на экране ПК */
+  token?: string;
 }
 
 /** Трек из MediaStore устройства (Android) */
@@ -175,6 +179,8 @@ declare global {
       /** ---- сетевая синхронизация (сервер работает только на ПК) ---- */
       /** статус сервера: порт, локальный IP, имя устройства */
       syncStatus: () => Promise<SyncServerStatus>;
+      /** тумблер синхронизации: старт/стоп HTTP+UDP сервера на ПК */
+      syncSetEnabled: (on: boolean) => Promise<SyncServerStatus>;
       /** открыть TCP 51789 в брандмауэре Windows (UAC) */
       syncOpenPort: () => Promise<boolean>;
       /** рендерер публикует свой снапшот (сервер начнёт его отдавать) */

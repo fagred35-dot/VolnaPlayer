@@ -1579,7 +1579,11 @@ export default function App() {
       )}
 
       {/* баннер найденного устройства (сетевая синхронизация) */}
-      <SyncBanner candidate={sync.candidate} onConnect={(c) => void sync.connectCandidate(c)} onDismiss={sync.dismissCandidate} />
+      <SyncBanner
+        candidate={sync.candidate}
+        onConnect={(c, code) => void sync.connectCandidate(c, code)}
+        onDismiss={sync.dismissCandidate}
+      />
 
       {/* плавающий журнал (Android) — живая диагностика на устройстве */}
       {logPanel && isMobilePlatform() && <LogBubble />}
@@ -1626,6 +1630,9 @@ export default function App() {
                 localIp: sync.localIp,
                 serverRunning: sync.serverRunning,
                 serverPort: sync.serverPort,
+                syncOn: sync.syncOn,
+                onToggleSync: (on: boolean) => void sync.setSyncEnabled(on),
+                pairCode: sync.pairCode,
                 connectError: sync.connectError,
                 onScanNow: () => void sync.scanNow(),
                 onRename: () => {
@@ -1633,7 +1640,7 @@ export default function App() {
                   if (name !== null && name.trim()) sync.renameDevice(name);
                 },
                 onDisconnect: sync.disconnectPeer,
-                onConnectByIp: (ip: string) => sync.connectByIp(ip),
+                onConnectByIp: (ip: string, code: string) => sync.connectByIp(ip, code),
                 onOpenPort: () => void handleSyncOpenPort(),
                 version: appVersion,
               }

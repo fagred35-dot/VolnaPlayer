@@ -1195,6 +1195,22 @@ app.whenReady().then(() => {
   startSync();
 
   /* ---------- сетевая синхронизация ---------- */
+  // Opt-in: сервер слушает 0.0.0.0 в LAN, поэтому включается только
+  // пользователем (тумблер в «Синхронизации»), не при каждом запуске плеера.
+  function syncEnabled() {
+    try {
+      return fs.readFileSync(path.join(app.getPath("userData"), "sync-enabled"), "utf8").trim() === "1";
+    } catch {
+      return false;
+    }
+  }
+  function setSyncEnabled(on) {
+    try {
+      fs.writeFileSync(path.join(app.getPath("userData"), "sync-enabled"), on ? "1" : "0", "utf8");
+    } catch {
+      /* не критично */
+    }
+  }
   function startSync() {
     let deviceId = "pc_" + crypto.randomBytes(5).toString("hex");
     try {
@@ -1205,17 +1221,29 @@ app.whenReady().then(() => {
       /* не критично */
     }
     const deviceName = os.hostname() || "Компьютер";
-    syncServer.startSyncServer({
-      deviceId,
-      deviceName,
-      appVersion: app.getVersion(),
-      dataDir: app.getPath("userData"),
-      onIncoming: (snap) => {
-        const w = getMainWindow();
-        if (w) safeSend(w, "sync-incoming", snap);
-      },
+    const start = () =>
+      syncServer.startSyncServer({
+        deviceId,
+        deviceName,
+        appVersion: app.getVersion(),
+        dataDir: app.getPath("userData"),
+        onIncoming: (snap) => {
+          const w = getMainWindow();
+          if (w) safeSend(w, "sync-incoming", snap);
+        },
+      });
+    if (syncEnabled()) start();
+    ipcMain.handle("sync-status", () => ({ ...syncServer.status(), enabled: syncEnabled() }));
+    // Тумблер «Синхронизация между устройствами»: старт/стоп HTTP+UDP сервера
+    ipcMain.handle("sync-set-enabled", (_e, on) => {
+      setSyncEnabled(!!on);
+      if (on) {
+        if (!syncServer.status().running) start();
+      } else {
+        syncServer.stopSyncServer();
+      }
+      return { ...syncServer.status(), enabled: syncEnabled() };
     });
-    ipcMain.handle("sync-status", () => syncServer.status());
     // Версия сборки для экрана «О приложении»
     ipcMain.handle("app-version", () => app.getVersion());
     // Открыть TCP+UDP 51789 в брандмауэре Windows (запросит UAC)

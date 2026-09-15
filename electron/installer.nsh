@@ -1,11 +1,10 @@
-; Волна: правило брандмауэра для сетевой синхронизации (TCP 51789).
-; При per-user установке netsh может не сработать — в приложении есть
-; кнопка «Открыть порт в брандмауэре» с UAC-элевацией как надёжный путь.
-
-!macro customInstall
-  nsExec::Exec `netsh advfirewall firewall add rule name="Volna Sync" dir=in action=allow protocol=TCP localport=51789`
-!macroend
+; Волна: синхронизация выключена по умолчанию (opt-in в приложении),
+; поэтому входящее правило брандмауэра при установке БОЛЬШЕ не добавляется —
+; пользователь открывает порт кнопкой «Открыть порт в брандмауэре» в секции
+; «Синхронизация» (с UAC-элевацией), когда реально ей пользуется.
+; При удалении чистим правило, оставшееся от старых версий установщика.
 
 !macro customUnInstall
   nsExec::Exec `netsh advfirewall firewall delete rule name="Volna Sync"`
+  nsExec::Exec `netsh advfirewall firewall delete rule name="Volna Sync UDP"`
 !macroend

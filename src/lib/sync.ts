@@ -83,6 +83,9 @@ export interface PeerInfo {
   port: number;
   rev: string;
   lastSeen: number;
+  /** Парный код устройства (12 hex) — запрашивается у пользователя при подключении.
+   *  Требуется для чтения/записи снапшота; /volna/info открыт без кода. */
+  token?: string;
 }
 
 /* ---------------- идентичность устройства ---------------- */
@@ -468,18 +471,24 @@ export async function scanSubnet(localIp: string, selfId: string): Promise<PeerI
   return found;
 }
 
-export async function fetchSnapshot(peer: PeerInfo): Promise<SyncSnapshot | null> {
+export type SnapshotResult = { ok: true; snap: SyncSnapshot } | { ok: false; unauthorized: boolean };
+
+export async function fetchSnapshot(peer: PeerInfo): Promise<SnapshotResult> {
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 8000);
-    const res = await fetch(`http://${peer.ip}:${peer.port}/volna/snapshot`, { signal: ctrl.signal });
+    const res = await fetch(`http://${peer.ip}:${peer.port}/volna/snapshot`, {
+      signal: ctrl.signal,
+      headers: peer.token ? { "x-volna-token": peer.token } : {},
+    });
     clearTimeout(timer);
-    if (!res.ok) return null;
+    if (res.status === 401) return { ok: false, unauthorized: true };
+    if (!res.ok) return { ok: false, unauthorized: false };
     const j = (await res.json()) as SyncSnapshot;
-    if (!j || typeof j.rev !== "string" || !Array.isArray(j.tracks)) return null;
-    return j;
+    if (!j || typeof j.rev !== "string" || !Array.isArray(j.tracks)) return { ok: false, unauthorized: false };
+    return { ok: true, snap: j };
   } catch {
-    return null;
+    return { ok: false, unauthorized: false };
   }
 }
 
@@ -489,7 +498,10 @@ export async function pushSnapshot(peer: PeerInfo, snap: SyncSnapshot): Promise<
     const timer = setTimeout(() => ctrl.abort(), 10000);
     const res = await fetch(`http://${peer.ip}:${peer.port}/volna/snapshot`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(peer.token ? { "x-volna-token": peer.token } : {}),
+      },
       body: JSON.stringify(snap),
       signal: ctrl.signal,
     });

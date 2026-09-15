@@ -45,10 +45,14 @@ export function useSync({ enabled, currentRev, getSnapshot, onIncomingSnapshot }
   const [localIp, setLocalIp] = useState<string | null>(null);
   const [serverRunning, setServerRunning] = useState(false);
   const [serverPort, setServerPort] = useState<number | null>(null);
+  // На ПК сервер включается тумблером (opt-in); телефон — только клиент,
+  // слушать ему нечего, поэтому сразу «включён».
+  const [syncOn, setSyncOn] = useState(() => isMobilePlatform());
+  const [pairCode, setPairCode] = useState<string>("");
   const [peers, setPeers] = useState<PeerInfo[]>(() => loadPeers());
   const [candidate, setCandidate] = useState<SyncCandidate | null>(null);
   const [scanning, setScanning] = useState(false);
-  const [connectError, setConnectError] = useState<"bad-ip" | "timeout" | "unreachable" | null>(null);
+  const [connectError, setConnectError] = useState<"bad-ip" | "timeout" | "unreachable" | "bad-code" | null>(null);
   const [scanStatus, setScanStatus] = useState<ScanStatus>("idle");
 
   const cbRef = useRef({ getSnapshot, onIncomingSnapshot, currentRev });
@@ -71,6 +75,8 @@ export function useSync({ enabled, currentRev, getSnapshot, onIncomingSnapshot }
         setLocalIp(st.localIp);
         setServerRunning(st.running);
         setServerPort(st.port);
+        if (typeof st.enabled === "boolean") setSyncOn(st.enabled);
+        if (st.token) setPairCode(st.token);
         appLog("sync", "pc status", st);
         if (st.deviceName && deviceRef.current.type === "pc") {
           // ПК по умолчанию называется hostname (пользователь может переименовать)
@@ -106,7 +112,7 @@ export function useSync({ enabled, currentRev, getSnapshot, onIncomingSnapshot }
 
   /* ---------- публикация своего снапшота при изменении библиотеки ---------- */
   useEffect(() => {
-    if (!enabled || !currentRev) return;
+    if (!enabled || !currentRev || !syncOn) return;
     const t = setTimeout(() => {
       const snap = cbRef.current.getSnapshot();
       if (!snap) return;
@@ -120,11 +126,11 @@ export function useSync({ enabled, currentRev, getSnapshot, onIncomingSnapshot }
       }
     }, 2500);
     return () => clearTimeout(t);
-  }, [enabled, currentRev]);
+  }, [enabled, currentRev, syncOn]);
 
   /* ---------- опрос подключённых устройств ---------- */
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !syncOn) return;
     let alive = true;
 
     const poll = async () => {
@@ -144,8 +150,9 @@ export function useSync({ enabled, currentRev, getSnapshot, onIncomingSnapshot }
             const merged = mergedRevs.current.get(p.deviceId);
             if (info.rev && info.rev !== merged) {
               appLog("sync", "peer rev differs, pulling", `${p.name} ${p.ip}`);
-              const snap = await fetchSnapshot(p);
-              if (!alive || !snap || snap.deviceId !== p.deviceId) return;
+              const got = await fetchSnapshot(p);
+              if (!alive || !got.ok || got.snap.deviceId !== p.deviceId) return;
+              const snap = got.snap;
               mergedRevs.current.set(p.deviceId, snap.rev);
               appLog("sync", "snapshot pulled", `${snap.tracks.length} tracks from ${p.name}`);
               cbRef.current.onIncomingSnapshot(snap);
@@ -164,7 +171,7 @@ export function useSync({ enabled, currentRev, getSnapshot, onIncomingSnapshot }
       alive = false;
       clearInterval(timer);
     };
-  }, [enabled]);
+  }, [enabled, syncOn]);
 
   /* ---------- UDP-слушатель анонсов ПК (Android, как в LocalSend) ---------- */
   useEffect(() => {
@@ -235,9 +242,11 @@ export function useSync({ enabled, currentRev, getSnapshot, onIncomingSnapshot }
   }, [enabled, localIp, scan]);
 
   /* ---------- действия ---------- */
-  const connectCandidate = useCallback(async (c: SyncCandidate) => {
+  /** Подключение к найденному устройству. Для ПК-сервера нужен парный код
+   *  (12 символов с экрана ПК) — без него сервер не отдаёт и не принимает данные. */
+  const connectCandidate = useCallback(async (c: SyncCandidate, code?: string) => {
     setCandidate(null);
-    const p: PeerInfo = { ...c };
+    const p: PeerInfo = { ...c, token: code ? code.trim().toLowerCase() : undefined };
     setPeers((prev) => {
       if (prev.some((x) => x.deviceId === p.deviceId)) return prev;
       const next = [...prev, p];
@@ -245,13 +254,45 @@ export function useSync({ enabled, currentRev, getSnapshot, onIncomingSnapshot }
       return next;
     });
     // немедленный обмен: тянули их → отдали своё
-    const snap = await fetchSnapshot(p);
-    if (snap && snap.deviceId === p.deviceId) {
-      mergedRevs.current.set(p.deviceId, snap.rev);
-      cbRef.current.onIncomingSnapshot(snap);
+    const got = await fetchSnapshot(p);
+    if (!got.ok) {
+      if (got.unauthorized) {
+        // код неверный — убираем устройство и просим ввести заново
+        appLog("sync", "pair code rejected", `${p.name} ${p.ip}`);
+        setConnectError("bad-code");
+        setPeers((prev) => {
+          const next = prev.filter((x) => x.deviceId !== p.deviceId);
+          savePeers(next);
+          return next;
+        });
+        return false;
+      }
+    } else {
+      const snap = got.snap;
+      if (snap.deviceId === p.deviceId) {
+        mergedRevs.current.set(p.deviceId, snap.rev);
+        cbRef.current.onIncomingSnapshot(snap);
+      }
     }
     const mine = cbRef.current.getSnapshot();
     if (mine) void pushSnapshot(p, mine);
+    return true;
+  }, []);
+
+  /** Тумблер синхронизации на ПК: старт/стоп HTTP+UDP сервера (main-процесс) */
+  const setSyncEnabled = useCallback(async (on: boolean) => {
+    try {
+      const st = await window.volna?.syncSetEnabled?.(on);
+      if (st) {
+        setSyncOn(!!st.enabled);
+        setServerRunning(st.running);
+        setServerPort(st.port);
+        setLocalIp(st.localIp);
+        if (st.token) setPairCode(st.token);
+      }
+    } catch {
+      /* не ПК */
+    }
   }, []);
 
   const disconnectPeer = useCallback((id: string) => {
@@ -263,9 +304,9 @@ export function useSync({ enabled, currentRev, getSnapshot, onIncomingSnapshot }
     mergedRevs.current.delete(id);
   }, []);
 
-  /** Ручное подключение по адресу "192.168.1.5" или "192.168.1.5:51789" */
+  /** Ручное подключение по адресу "192.168.1.5" или "192.168.1.5:51789" + парный код */
   const connectByIp = useCallback(
-    async (raw: string): Promise<boolean> => {
+    async (raw: string, code?: string): Promise<boolean> => {
       const m = raw.trim().match(/^(\d{1,3}(?:\.\d{1,3}){3})(?::(\d{2,5}))?$/);
       if (!m) {
         setConnectError("bad-ip");
@@ -283,8 +324,7 @@ export function useSync({ enabled, currentRev, getSnapshot, onIncomingSnapshot }
       }
       setConnectError(null);
       appLog("sync", "connect ok", `${info.name} ${ip}:${port}`);
-      await connectCandidate({ ...info, firstSeen: Date.now() });
-      return true;
+      return connectCandidate({ ...info, firstSeen: Date.now() }, code);
     },
     [connectCandidate, localIp]
   );
@@ -305,6 +345,9 @@ export function useSync({ enabled, currentRev, getSnapshot, onIncomingSnapshot }
     localIp,
     serverRunning,
     serverPort,
+    syncOn,
+    pairCode,
+    setSyncEnabled,
     peers,
     candidate,
     scanning,

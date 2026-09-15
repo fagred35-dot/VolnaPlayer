@@ -54,11 +54,14 @@ interface Props {
     localIp: string | null;
     serverRunning: boolean;
     serverPort: number | null;
-    connectError: "bad-ip" | "timeout" | "unreachable" | null;
+    syncOn: boolean;
+    onToggleSync: (on: boolean) => void;
+    pairCode: string;
+    connectError: "bad-ip" | "timeout" | "unreachable" | "bad-code" | null;
     onScanNow: () => void;
     onRename: () => void;
     onDisconnect: (deviceId: string) => void;
-    onConnectByIp: (ip: string) => Promise<boolean>;
+    onConnectByIp: (ip: string, code: string) => Promise<boolean>;
     onOpenPort: () => void;
     /** версия сборки — подпись у имени устройства */
     version?: string;
@@ -307,6 +310,9 @@ export default function Sidebar(p: Props) {
           localIp={p.sync.localIp}
           serverRunning={p.sync.serverRunning}
           serverPort={p.sync.serverPort}
+          syncOn={p.sync.syncOn}
+          onToggleSync={p.sync.onToggleSync}
+          pairCode={p.sync.pairCode}
           connectError={p.sync.connectError}
           onScanNow={p.sync.onScanNow}
           onRename={p.sync.onRename}

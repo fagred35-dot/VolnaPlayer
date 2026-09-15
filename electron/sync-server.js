@@ -8,7 +8,6 @@
 const http = require("http");
 const os = require("os");
 const fs = require("fs");
-const fsp = require("fs/promises");
 const path = require("path");
 const dgram = require("dgram");
 
@@ -16,6 +15,9 @@ const PORT = 51789;
 const APP_VERSION = "1.1.0";
 const MULTICAST_ADDR = "224.0.0.167";
 const ANNOUNCE_EVERY_MS = 3000;
+const TOKEN_HEADER = "x-volna-token";
+/** Origin'ы WebView (Capacitor), которым разрешён CORS к серверу синхронизации */
+const ALLOWED_ORIGINS = new Set(["https://localhost", "capacitor://localhost", "http://localhost"]);
 
 let state = {
   deviceId: "",
@@ -26,7 +28,29 @@ let state = {
   onIncoming: null,
   server: null,
   localIp: null,
+  token: "",
 };
+
+/** Парный код устройства: постоянный, генерируется один раз, хранится в dataDir.
+ *  Без него GET/POST snapshot отклоняются — любой хост в LAN не может
+ *  читать или отравлять библиотеку. /volna/info (поиск устройств) остаётся открытым. */
+function loadOrCreateToken(dataDir) {
+  const file = path.join(dataDir, "sync-token");
+  try {
+    const t = fs.readFileSync(file, "utf8").trim();
+    if (/^[a-f0-9]{12}$/.test(t)) return t;
+  } catch {
+    /* нет файла — создаём */
+  }
+  try {
+    const t = require("crypto").randomBytes(6).toString("hex");
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.writeFileSync(file, t, "utf8");
+    return t;
+  } catch {
+    return "";
+  }
+}
 
 function localIp() {
   const ifs = os.networkInterfaces();
@@ -46,10 +70,15 @@ function localIp() {
   return null;
 }
 
-function cors(res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+function cors(req, res) {
+  // CORS только для WebView-приложений (Capacitor), а не "*" для всей сети
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, " + TOKEN_HEADER);
+    res.setHeader("Vary", "Origin");
+  }
 }
 
 function readBody(req, limit = 30 * 1024 * 1024) {
@@ -60,7 +89,6 @@ function readBody(req, limit = 30 * 1024 * 1024) {
       size += c.length;
       if (size > limit) {
         reject(new Error("too large"));
-        req.destroy();
         return;
       }
       chunks.push(c);
@@ -82,9 +110,13 @@ function infoPayload() {
   };
 }
 
+function authorized(req) {
+  return !!state.token && req.headers[TOKEN_HEADER] === state.token;
+}
+
 async function handle(req, res) {
   const url = (req.url || "").split("?")[0];
-  cors(res);
+  cors(req, res);
   if (req.method === "OPTIONS") {
     res.writeHead(204).end();
     return;
@@ -94,18 +126,28 @@ async function handle(req, res) {
     res.end(JSON.stringify(infoPayload()));
     return;
   }
+  // Данные библиотеки — только устройствам с парным кодом (см. loadOrCreateToken)
   if (req.method === "GET" && url === "/volna/snapshot") {
+    if (!authorized(req)) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: false, error: "unauthorized" }));
+      return;
+    }
     res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
     res.end(JSON.stringify(state.snapshot || { proto: 1, rev: "", tracks: [], playlists: [], stats: {} }));
     return;
   }
   if (req.method === "POST" && url === "/volna/snapshot") {
+    if (!authorized(req)) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: false, error: "unauthorized" }));
+      return;
+    }
     try {
       const body = await readBody(req);
       const snap = JSON.parse(body);
       if (!snap || !Array.isArray(snap.tracks)) throw new Error("bad snapshot");
       snap.sentAt = Date.now();
-      await persistIncoming(snap);
       if (state.onIncoming) state.onIncoming(snap);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true }));
@@ -115,15 +157,6 @@ async function handle(req, res) {
     return;
   }
   res.writeHead(404).end();
-}
-
-async function persistIncoming(snap) {
-  try {
-    await fsp.mkdir(path.dirname(state.storeFile), { recursive: true });
-    await fsp.writeFile(state.storeFile + ".incoming", JSON.stringify(snap), "utf8");
-  } catch {
-    /* не критично */
-  }
 }
 
 function persistOwn() {
@@ -232,6 +265,7 @@ function startSyncServer({ deviceId, deviceName, dataDir, onIncoming, port, appV
   state.onIncoming = onIncoming;
   state.storeFile = path.join(dataDir, "sync-snapshot.json");
   state.localIp = localIp();
+  state.token = loadOrCreateToken(dataDir);
   try {
     if (fs.existsSync(state.storeFile)) {
       state.snapshot = JSON.parse(fs.readFileSync(state.storeFile, "utf8"));
@@ -269,7 +303,22 @@ function status() {
     port: state.server ? state.server.address()?.port ?? null : null,
     localIp: state.localIp,
     deviceName: state.deviceName,
+    token: state.token,
   };
 }
 
-module.exports = { startSyncServer, status, publishOwn };
+/** Полностью остановить сервер и UDP-анонсы (вызывается, когда синхронизация выключена). */
+function stopSyncServer() {
+  stopAnnounce();
+  const s = state.server;
+  state.server = null;
+  if (s) {
+    try {
+      s.close();
+    } catch {
+      /* уже закрыт */
+    }
+  }
+}
+
+module.exports = { startSyncServer, stopSyncServer, status, publishOwn };

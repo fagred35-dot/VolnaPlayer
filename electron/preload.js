@@ -84,6 +84,7 @@ contextBridge.exposeInMainWorld("volna", {
   },
   /** ---- сетевая синхронизация ---- */
   syncStatus: () => ipcRenderer.invoke("sync-status"),
+  syncSetEnabled: (on) => ipcRenderer.invoke("sync-set-enabled", on),
   syncOpenPort: () => ipcRenderer.invoke("sync-open-port"),
   /** запасная синхронизация файлом */
   libExport: (json) => ipcRenderer.invoke("lib-export", json),

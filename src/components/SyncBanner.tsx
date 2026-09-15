@@ -4,7 +4,7 @@ import { useI18n } from "../lib/i18n";
 
 interface Props {
   candidate: SyncCandidate | null;
-  onConnect: (c: SyncCandidate) => void;
+  onConnect: (c: SyncCandidate, code: string) => void;
   onDismiss: () => void;
 }
 
@@ -30,7 +30,12 @@ export default function SyncBanner({ candidate, onConnect, onDismiss }: Props) {
           </div>
         </div>
         <button
-          onClick={() => onConnect(candidate)}
+          onClick={() => {
+            // ПК-сервер требует парный код — просим ввести (он виден на экране ПК)
+            const code = candidate.type === "pc" ? window.prompt(t("syncCodeAsk"), "") || "" : "";
+            if (candidate.type === "pc" && !code.trim()) return;
+            onConnect(candidate, code.trim());
+          }}
           className="shrink-0 rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-bold text-white transition-transform hover:brightness-110 active:scale-95"
         >
           {t("syncConnect")}

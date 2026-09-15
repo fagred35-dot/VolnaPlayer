@@ -267,8 +267,10 @@ export function installMobileBridge(): void {
       } catch {
         /* нет нативного плагина */
       }
-      return { running: false, port: null, localIp, deviceName: "Телефон" };
+      return { running: false, port: null, localIp, deviceName: "Телефон", enabled: true, token: "" };
     },
+    /** на телефоне сервера нет — тумблер синхронизации только для ПК */
+    syncSetEnabled: async (on: boolean) => ({ running: false, port: null, localIp: null, deviceName: "Телефон", enabled: !!on, token: "" }),
     syncOpenPort: () => Promise.resolve(false),
     /** MediaStore: вся аудиобиблиотека устройства (Android) */
     listAllAudio: async () => {

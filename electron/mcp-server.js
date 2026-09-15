@@ -250,69 +250,108 @@ async function handleMessage(methods, msg) {
   }
 }
 
-/**
- * Запустить сервер. Пытается занять port, port+1… — если порт занят другим
- * экземпляром Волны, берёт следующий. Возвращает фактический порт.
- */
+/** Запустить сервер. Пытается занять port, port+1… — если порт занят другим
+ *  экземпляром Волны, берёт следующий. Возвращает фактический порт. */
+const MAX_BODY = 2 * 1024 * 1024; // JSON-RPC-запросы — маленькие; без лимита — DoS памятью
+const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
+
+function readBody(req, limit) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on("data", (c) => {
+      size += c.length;
+      if (size > limit) {
+        reject(new Error("too large"));
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+}
+
 function startMcpServer({ port, getState, sendCommand, youtubeSearch, log }) {
   const methods = { getState, sendCommand, youtubeSearch };
   const server = http.createServer((req, res) => {
+    // Защита от DNS-rebinding: страница, резолвящая свой домен в 127.0.0.1,
+    // приходит с чужим Host — локальные клиенты всегда зовут 127.0.0.1/localhost.
+    const host = String(req.headers.host || "").replace(/:\d+$/, "").toLowerCase();
+    if (!LOCAL_HOSTS.has(host)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(rpcError(null, -32000, "Forbidden host")));
+      return;
+    }
     if (req.method !== "POST" || (req.url || "").split("?")[0] !== "/mcp") {
       res.writeHead(405, { Allow: "POST", "Content-Type": "application/json" });
       res.end(JSON.stringify(rpcError(null, -32600, "POST /mcp with a JSON-RPC body only")));
       return;
     }
-    const chunks = [];
-    req.on("data", (c) => chunks.push(c));
-    req.on("end", async () => {
-      let body;
-      try {
-        body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "null");
-      } catch {
-        res.writeHead(400, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(rpcError(null, -32700, "Parse error")));
-        return;
-      }
-      const messages = Array.isArray(body) ? body : [body];
-      const replies = [];
-      for (const m of messages) {
-        const r = await handleMessage(methods, m);
-        if (r) replies.push(r);
-      }
-      // CORS для локальных веб-клиентов (mcp-remote и т.п.)
-      const headers = {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "*",
-        "Access-Control-Allow-Methods": "POST, GET, DELETE, OPTIONS",
-      };
-      if (req.method === "OPTIONS") {
-        res.writeHead(204, headers);
-        res.end();
-        return;
-      }
-      res.writeHead(200, headers);
-      res.end(JSON.stringify(Array.isArray(body) ? replies : replies[0] ?? null));
-    });
+    req.on("error", () => { /* обрыв тела — просто закрываем */ });
+    readBody(req, MAX_BODY)
+      .then(async (text) => {
+        let body;
+        try {
+          body = JSON.parse(text || "null");
+        } catch {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(rpcError(null, -32700, "Parse error")));
+          return;
+        }
+        const messages = Array.isArray(body) ? body : [body];
+        const replies = [];
+        for (const m of messages) {
+          const r = await handleMessage(methods, m);
+          if (r) replies.push(r);
+        }
+        // CORS только для localhost-клиентов (mcp-remote и т.п.)
+        const origin = req.headers.origin;
+        const headers = { "Content-Type": "application/json" };
+        if (origin && /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) {
+          headers["Access-Control-Allow-Origin"] = origin;
+          headers["Access-Control-Allow-Headers"] = "Content-Type";
+          headers["Access-Control-Allow-Methods"] = "POST, OPTIONS";
+          headers["Vary"] = "Origin";
+        }
+        if (req.method === "OPTIONS") {
+          res.writeHead(204, headers);
+          res.end();
+          return;
+        }
+        res.writeHead(200, headers);
+        res.end(JSON.stringify(Array.isArray(body) ? replies : replies[0] ?? null));
+      })
+      .catch(() => {
+        res.writeHead(413, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(rpcError(null, -32600, "Payload too large")));
+      });
+  });
+  // Постоянный обработчик: ошибка сервера после запуска не должна валить процесс
+  server.on("error", (e) => {
+    if (log) log(`MCP-сервер: ошибка: ${String((e && e.message) || e)}`);
   });
 
   return new Promise((resolve, reject) => {
     let attempt = 0;
     const tryPort = (p) => {
-      server.once("error", (e) => {
-        server.removeAllListeners("listening");
+      const onError = (e) => {
+        server.removeListener("listening", onListening);
         if (e.code === "EADDRINUSE" && attempt < 10) {
           attempt += 1;
           tryPort(p + 1);
         } else {
           reject(e);
         }
-      });
-      server.once("listening", () => {
-        server.removeAllListeners("error");
+      };
+      const onListening = () => {
+        server.removeListener("error", onError);
         if (log) log(`MCP-сервер: http://127.0.0.1:${p}/mcp`);
         resolve({ port: p, server });
-      });
+      };
+      // после запуска остаётся общий server.on("error") выше — процесс не падает
+      server.on("error", onError);
+      server.once("listening", onListening);
       server.listen(p, "127.0.0.1");
     };
     tryPort(Math.max(1024, Math.floor(Number(port) || 57624)));
